@@ -10,6 +10,7 @@ from .preprocess import Preprocess
 
 class Detect(LuigiFileTask):
     """Task to run deepblink for spot detection."""
+
     index_list = luigi.IntParameter()
 
     def __init__(self, *args, **kwargs):
@@ -42,6 +43,7 @@ class Detect(LuigiFileTask):
 
 class Track(LuigiFileTask):
     """Task to track spots in 3D/2D+T."""
+
     index_list = luigi.IntParameter()
 
     def __init__(self, *args, **kwargs):
@@ -60,12 +62,7 @@ class Track(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
-        fname_spots = os.path.join(
-            self.config["output_path"],
-            f"detection_raw_c{self.index_channel}",
-            f"{self.FileID}.parq",
-        )
-        df = koopa.io.load_parquet(fname_spots)
+        df = koopa.io.load_parquet(self.input().path)
         track = koopa.track.track(
             df,
             self.config["search_range"],
@@ -82,6 +79,7 @@ class Track(LuigiFileTask):
 
 class ColocalizeFrame(LuigiFileTask):
     """Task to colocalize spots between frames."""
+
     index_reference = luigi.IntParameter()
     index_transform = luigi.IntParameter()
 
@@ -92,12 +90,12 @@ class ColocalizeFrame(LuigiFileTask):
     def requires(self):
         if self.config["do_3d"]:
             return [
-                Detect(FileID=self.FileID, index_list=self.index_reference),
-                Detect(FileID=self.FileID, index_list=self.index_transform),
+                Track(FileID=self.FileID, index_list=self.index_reference),
+                Track(FileID=self.FileID, index_list=self.index_transform),
             ]
         return [
-            Track(FileID=self.FileID, index_list=self.index_reference),
-            Track(FileID=self.FileID, index_list=self.index_transform),
+            Detect(FileID=self.FileID, index_list=self.index_reference),
+            Detect(FileID=self.FileID, index_list=self.index_transform),
         ]
 
     def output(self):
@@ -125,6 +123,7 @@ class ColocalizeFrame(LuigiFileTask):
 
 class ColocalizeTrack(LuigiFileTask):
     """Task to colocalize spots between tracks."""
+
     index_reference = luigi.IntParameter()
     index_transform = luigi.IntParameter()
 
