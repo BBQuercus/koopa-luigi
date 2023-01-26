@@ -15,7 +15,7 @@
 
 # Configuration
 CONDA_DIR=/tungstenfs/scratch/gchao/eichbast/miniconda/bin/activate
-CONFIG=/tungstenfs/scratch/gchao/eichbast/koopa-flows/tests/config/flies.cfg
+CONFIG=PATH/TO/KOOPA.cfg
 
 # Run
 source $CONDA_DIR koopa
