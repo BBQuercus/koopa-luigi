@@ -16,4 +16,7 @@ Usage:
 	* Add a mail account if required
 	* Change resources if required
 * Log into slurm
-* Run either the GPU or CPU workflow depending on requirements with `sbatch NAME.sh`
+* Run either the GPU or CPU workflow separately depending on requirements with `sbatch NAME.sh`
+	* The CPU workflow is optionally dependent on the GPU workflow
+	* Trigger the GPU workflow with `my_id=$(sbatch --parsable NAME.sh)`
+	* Add the CPU workflow as dependency with `sbatch -d afterok:$my_id NAME.sh`
