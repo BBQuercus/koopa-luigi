@@ -127,6 +127,10 @@ class ColocalizeTrack(LuigiFileTask):
     index_reference = luigi.IntParameter()
     index_transform = luigi.IntParameter()
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.name = f"{self.index_reference}-{self.index_transform}"
+
     def requires(self):
         return [
             Track(FileID=self.FileID, index_list=self.index_reference),
@@ -134,9 +138,10 @@ class ColocalizeTrack(LuigiFileTask):
         ]
 
     def output(self):
-        name = f"{self.index_reference}-{self.index_transform}"
         fname_out = os.path.join(
-            self.config["output_path"], f"colocalization_{name}", f"{self.FileID}.parq"
+            self.config["output_path"],
+            f"colocalization_{self.name}",
+            f"{self.FileID}.parq",
         )
         return luigi.LocalTarget(fname_out)
 
@@ -148,6 +153,7 @@ class ColocalizeTrack(LuigiFileTask):
         df = koopa.colocalize.colocalize_tracks(
             df_reference,
             df_transform,
+            self.name,
             self.config["min_frames"],
             self.config["distance_cutoff"],
         )
