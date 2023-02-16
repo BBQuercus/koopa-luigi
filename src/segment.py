@@ -1,6 +1,9 @@
 import os
 
-import koopa
+import koopa.io
+import koopa.segment_cells
+import koopa.segment_flies
+import koopa.segment_other
 import luigi
 
 from .util import LuigiFileTask

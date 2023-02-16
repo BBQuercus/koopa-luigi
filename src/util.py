@@ -2,7 +2,8 @@ import logging
 import os
 import sys
 
-import koopa
+import koopa.config
+import koopa.io
 import luigi
 
 

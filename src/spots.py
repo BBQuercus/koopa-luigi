@@ -1,7 +1,10 @@
 import os
 
 import deepblink as pink
-import koopa
+import koopa.colocalize
+import koopa.detect
+import koopa.io
+import koopa.track
 import luigi
 
 from .util import LuigiFileTask

@@ -1,6 +1,8 @@
 import os
 
-import koopa
+import koopa.align
+import koopa.io
+import koopa.preprocess
 import luigi
 import numpy as np
 

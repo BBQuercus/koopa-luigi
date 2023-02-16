@@ -1,9 +1,11 @@
 from typing import Tuple
 import os
 
-import koopa
-import pandas as pd
+import koopa.io
+import koopa.postprocess
+import koopa.util
 import luigi
+import pandas as pd
 
 from .segment import DilateCells
 from .segment import SegmentCellsBoth
@@ -45,7 +47,7 @@ class Merge(LuigiTask):
     def run(self):
         dfs = [self.__run_single(fname) for fname in self.fnames]
         for idx, target in enumerate(self.output()):
-            df = pd.concat([i[idx] for i in dfs], ignore_index=True)
+            df = pd.concat([i[idx] for i in dfs if i is not None], ignore_index=True)
             koopa.io.save_csv(target.path, df)
         self.logger.info("Koopa finished analyzing everything!")
 
@@ -94,6 +96,7 @@ class Merge(LuigiTask):
         return segmaps
 
     def __run_single(self, fname: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        self.logger.debug(f"Merging files for {fname}")
         req_segmaps, req_spots = self.requires()[fname]
 
         segmaps = {}
@@ -105,7 +108,15 @@ class Merge(LuigiTask):
                 segmaps[name] = koopa.io.load_image(task.output().path)
 
         df = pd.concat([koopa.io.load_parquet(i.output().path) for i in req_spots])
-        df, df_cell = koopa.postprocess.get_segmentation_data(df, segmaps, self.config)
+        try:
+            df, df_cell = koopa.postprocess.get_segmentation_data(
+                df, segmaps, self.config
+            )
+        except ValueError:
+            self.logger.warning(
+                f"File {fname} did not contain any spots. Will be skipped."
+            )
+            return None
         self.logger.debug(f"Merged files for {fname}")
         return df, df_cell
 
