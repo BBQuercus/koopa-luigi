@@ -22,3 +22,7 @@ Usage:
 	* Add the CPU workflow as dependency with `sbatch -d afterok:$my_id NAME.sh`
 * Running on xenon:
 	* Run CPU workflow only! (since no GPUs are available) with `sh cpu.sh`
+
+Documentation:
+* Slides [here](https://docs.google.com/presentation/d/1NnMhKKv6QjvK3uVa6e8yZHLHRFyKN9We8xGsiD1sIcY/edit?usp=sharing)
+* Video [here](https://youtu.be/R6RBIBuJDGI)
