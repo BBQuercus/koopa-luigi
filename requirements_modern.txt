@@ -23,8 +23,8 @@ tifffile>=2023.0.0
 # aicsimageio[all]>=4.14.0  # Optional: comprehensive image reading
 # bioformats_jar>=2020.5.27  # Optional: Java-based format support
 
-# Koopa dependencies (installed as editable in setup)
-# koopa - install as: pip install -e /path/to/koopa/
+# Koopa dependencies
+# koopa installed separately from PyPI
 numba>=0.57.0
 pystackreg>=0.2.7
 trackpy>=0.6.0

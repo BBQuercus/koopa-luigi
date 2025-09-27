@@ -1,28 +1,92 @@
 # koopa-luigi
-A functional implementation of koopa in luigi :)
+A functional implementation of koopa in luigi with multi-environment support for different model versions.
 
-Notes:
-* If creating a local installation, install with `pip install -e .`
-* Everything will be run via `koopa-luigi` (the `.sh` files just abstract that)
-* GPU workflow only triggeres GPU-dependent components and does not merge
-* CPU / standard workflow will trigger everything
+## Quick Start
 
-Usage:
-* Download the `koopa.cfg` and `cpu/gpu.sh` files somewhere server accessible
-* Update `koopa.cfg` as usual
-* Update the `cpu/gpu.sh` files:
-	* Change the `CONFIG` parameter to the path to `koopa.cfg`
-	* Add a mail account if running on slurm
-	* Change resources if running on slurm
-* Log into slurm or xenon servers
-* Running on slurm:
-	* Run either the GPU or CPU workflow separately depending on requirements with `sbatch NAME.sh`
-	* The CPU workflow is optionally dependent on the GPU workflow
-	* Trigger the GPU workflow with `my_id=$(sbatch --parsable NAME.sh)`
-	* Add the CPU workflow as dependency with `sbatch -d afterok:$my_id NAME.sh`
-* Running on xenon:
-	* Run CPU workflow only! (since no GPUs are available) with `sh cpu.sh`
+### 1. Setup Environments (One Time)
+```bash
+# Install uv package manager
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-Documentation:
+# Setup both environments
+./setup_envs.sh
+```
+
+This creates:
+- `venv_modern/` - TensorFlow 2.17+ for recent models
+- `venv_legacy/` - TensorFlow 2.13 for older models (model_fish.h5)
+
+### 2. Run the Pipeline
+
+**For recent models:**
+```bash
+./run_modern.sh --config koopa.cfg --workers 4
+```
+
+**For older models (model_fish.h5):**
+```bash
+./run_legacy.sh --config koopa.cfg --workers 4
+```
+
+**Skip incompatible models (any environment):**
+```bash
+koopa-luigi --config koopa.cfg --skip-incompatible --workers 4
+```
+
+### 3. Check Environment
+
+```bash
+# Show environment info and installed packages
+koopa-luigi --env-info
+
+# Check model compatibility with your config
+python check_environment.py --config koopa.cfg
+
+# Verbose mode with detailed compatibility info
+koopa-luigi --config koopa.cfg --verbose-compatibility
+```
+
+## Configuration
+
+Use standard koopa configuration files. The pipeline automatically detects:
+- Input file formats (ND2, CZI, TIFF, etc.)
+- Model compatibility with current environment
+- Required segmentation methods
+
+## Running on HPC
+
+### SLURM
+```bash
+# GPU workflow
+sbatch gpu.sh
+
+# CPU workflow  
+sbatch cpu.sh
+
+# Chain GPU then CPU
+gpu_id=$(sbatch --parsable gpu.sh)
+sbatch -d afterok:$gpu_id cpu.sh
+```
+
+### Local/Xenon (CPU only)
+```bash
+sh cpu.sh
+```
+
+## Troubleshooting
+
+**Model compatibility errors:**
+- Use `./run_legacy.sh` for older models
+- Use `./run_modern.sh` for recent models
+- Add `--skip-incompatible` to skip problematic models
+
+**Missing image format support:**
+```bash
+# Install specific readers as needed
+uv pip install nd2reader  # For Nikon ND2
+uv pip install czifile    # For Zeiss CZI
+```
+
+## Documentation
 * Slides [here](https://docs.google.com/presentation/d/1NnMhKKv6QjvK3uVa6e8yZHLHRFyKN9We8xGsiD1sIcY/edit?usp=sharing)
 * Video [here](https://youtu.be/R6RBIBuJDGI)

@@ -4,10 +4,9 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-KOOPA_PATH="${1}"
 
 echo "Setting up koopa-luigi environments..."
-echo "Using koopa from: $KOOPA_PATH"
+echo "Installing koopa from PyPI"
 echo ""
 
 # Check for uv
@@ -24,9 +23,7 @@ if [ -d "$SCRIPT_DIR/venv_modern" ]; then
 fi
 uv venv "$SCRIPT_DIR/venv_modern" --python 3.10
 uv pip install -r "$SCRIPT_DIR/requirements_modern.txt" --python "$SCRIPT_DIR/venv_modern/bin/python"
-if [ -d "$KOOPA_PATH" ]; then
-    "$SCRIPT_DIR/venv_modern/bin/pip" install -e "$KOOPA_PATH" -q
-fi
+uv pip install koopa --python "$SCRIPT_DIR/venv_modern/bin/python"
 "$SCRIPT_DIR/venv_modern/bin/pip" install -e "$SCRIPT_DIR" -q
 echo "✓ Modern environment ready"
 echo ""
@@ -38,9 +35,7 @@ if [ -d "$SCRIPT_DIR/venv_legacy" ]; then
 fi
 uv venv "$SCRIPT_DIR/venv_legacy" --python 3.10
 uv pip install -r "$SCRIPT_DIR/requirements_legacy.txt" --python "$SCRIPT_DIR/venv_legacy/bin/python"
-if [ -d "$KOOPA_PATH" ]; then
-    "$SCRIPT_DIR/venv_legacy/bin/pip" install -e "$KOOPA_PATH" -q
-fi
+uv pip install koopa --python "$SCRIPT_DIR/venv_legacy/bin/python"
 "$SCRIPT_DIR/venv_legacy/bin/pip" install -e "$SCRIPT_DIR" -q
 echo "✓ Legacy environment ready"
 echo ""
