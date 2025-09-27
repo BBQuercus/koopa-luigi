@@ -32,6 +32,16 @@ def _parse_args():
         action="store_true",
         help="If GPUs should be used for processing - will set workers to 1.",
     )
+    parser.add_argument(
+        "--skip-incompatible",
+        action="store_true",
+        help="Skip models that are incompatible with current environment instead of failing.",
+    )
+    parser.add_argument(
+        "--env-info",
+        action="store_true",
+        help="Display environment information and exit.",
+    )
 
     # Utils
     parser.add_argument(

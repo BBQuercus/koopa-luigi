@@ -1,9 +1,6 @@
 import os
 
 import koopa.io
-import koopa.segment_cells
-import koopa.segment_flies
-import koopa.segment_other
 import luigi
 
 from .util import LuigiFileTask
@@ -25,6 +22,9 @@ class SegmentCellsSingle(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
+        import koopa.segment_cells
+        
+
         image = koopa.io.load_image(self.input().path)
         image = image[self.config[f"channel_{self.config['selection']}"]]
 
@@ -54,6 +54,8 @@ class SegmentCellsBoth(LuigiFileTask):
         return luigi.LocalTarget(fname_nuclei), luigi.LocalTarget(fname_cyto)
 
     def run(self):
+        import koopa.segment_cells
+
         image = koopa.io.load_image(self.input().path)
         image_nuclei = image[self.config["channel_nuclei"]]
         image_cyto = image[self.config["channel_cyto"]]
@@ -83,6 +85,8 @@ class SegmentCellsPredict(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
+        import koopa.segment_flies
+
         self.logger.info("Reading image for prediction")
         image = koopa.io.load_image(self.input().path)
         self.logger.info("Normalizing nucleus")
@@ -110,6 +114,8 @@ class SegmentCellsMerge(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
+        import koopa.segment_flies
+
         image = koopa.io.load_image(self.input()[0].path)[self.config["brains_channel"]]
         yf = koopa.io.load_image(self.input()[1].path)
         segmap = koopa.segment_flies.merge_masks(yf)
@@ -136,6 +142,8 @@ class DilateCells(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
+        import koopa.segment_flies
+
         segmap = koopa.io.load_image(self.input().path)
         dilated = koopa.segment_flies.dilate_segmap(
             segmap, dilation=self.config["dilation"]
@@ -160,6 +168,8 @@ class SegmentOther(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
+        import koopa.segment_other
+
         image = koopa.io.load_image(self.input().path)
         segmap = koopa.segment_other.segment(
             image=image[self.config["sego_channels"][self.index_list]],

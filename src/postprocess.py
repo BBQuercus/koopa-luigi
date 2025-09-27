@@ -7,11 +7,7 @@ import koopa.util
 import luigi
 import pandas as pd
 
-from .segment import DilateCells
-from .segment import SegmentCellsBoth
-from .segment import SegmentCellsPredict
-from .segment import SegmentCellsSingle
-from .segment import SegmentOther
+# Segment imports will be lazy-loaded when needed
 from .spots import ColocalizeFrame
 from .spots import ColocalizeTrack
 from .spots import Detect
@@ -76,20 +72,28 @@ class Merge(LuigiTask):
     def get_segmaps(self, fname: str, gpu: bool = False) -> dict:
         segmaps = {}
         if self.config["sego_enabled"]:
+            from .segment import SegmentOther
+
             for idx, _ in enumerate(self.config["sego_channels"]):
                 segmaps[f"other_{idx}"] = SegmentOther(
                     FileID=fname, index_list=idx, gpu=gpu
                 )
 
         if self.config["brains_enabled"]:
+            from .segment import SegmentCellsPredict, DilateCells
+
             segmaps["nuclei"] = (
                 SegmentCellsPredict(FileID=fname, gpu=gpu)
                 if gpu
                 else DilateCells(FileID=fname)
             )
         elif self.config["selection"] == "both":
+            from .segment import SegmentCellsBoth
+
             segmaps["both"] = SegmentCellsBoth(FileID=fname, gpu=gpu)
         else:
+            from .segment import SegmentCellsSingle
+
             segmaps[self.config["selection"]] = SegmentCellsSingle(
                 FileID=fname, gpu=gpu
             )

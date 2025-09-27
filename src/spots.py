@@ -1,4 +1,5 @@
 import os
+import sys
 
 import deepblink as pink
 import koopa.colocalize
@@ -32,8 +33,37 @@ class Detect(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
+        skip_incompatible = '--skip-incompatible' in sys.argv
+        
         image = koopa.io.load_image(self.input().path)
-        model = pink.io.load_model(self.config["detect_models"][self.index_list])
+        model_path = self.config["detect_models"][self.index_list]
+        
+        try:
+            model = pink.io.load_model(model_path)
+        except (TypeError, KeyError, Exception) as e:
+            error_msg = str(e)
+            self.logger.warning(f"Failed to load model for channel {self.index_channel}: {error_msg[:100]}")
+            
+            if skip_incompatible:
+                self.logger.info(f"Skipping incompatible model for channel {self.index_channel} (--skip-incompatible enabled)")
+                # Create empty DataFrame with expected columns
+                import pandas as pd
+                df = pd.DataFrame(columns=['x', 'y', 'z', 'probability'])
+                df.insert(loc=0, column="FileID", value=self.FileID)
+                koopa.io.save_parquet(self.output().path, df)
+                self.logger.info(f"Created empty results file for channel {self.index_channel}")
+                return
+            else:
+                # Check if it's a known compatibility issue
+                if "trainable" in error_msg or "SpatialDropout2D" in error_msg:
+                    self.logger.error(f"Model incompatibility detected for channel {self.index_channel}")
+                    self.logger.error("This model was created with an older Keras version")
+                    self.logger.error("Solutions:")
+                    self.logger.error("  1. Run with --skip-incompatible flag to skip this model")
+                    self.logger.error("  2. Use a virtual environment with TensorFlow 2.13 and Keras 2.x")
+                    self.logger.error("  3. Update/retrain the model with current TensorFlow/Keras versions")
+                raise
+        
         df = koopa.detect.detect_image(
             image,
             self.index_channel,
