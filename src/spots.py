@@ -135,7 +135,9 @@ class ColocalizeFrame(LuigiFileTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.name = f"{self.index_reference}-{self.index_transform}"
+        self.channel_reference = self.config["detect_channels"][self.index_reference]
+        self.channel_transform = self.config["detect_channels"][self.index_transform]
+        self.name = f"{self.channel_reference}-{self.channel_transform}"
 
     def requires(self):
         if self.config["do_3d"]:
@@ -157,7 +159,9 @@ class ColocalizeFrame(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
-        self.logger.info(f"Colocalizing {self.index_reference}<-{self.index_transform}")
+        self.logger.info(
+            f"Colocalizing {self.channel_reference}<-{self.channel_transform}"
+        )
 
         df_reference = koopa.io.load_parquet(self.input()[0].path)
         df_transform = koopa.io.load_parquet(self.input()[1].path)
@@ -179,7 +183,9 @@ class ColocalizeTrack(LuigiFileTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.name = f"{self.index_reference}-{self.index_transform}"
+        self.channel_reference = self.config["detect_channels"][self.index_reference]
+        self.channel_transform = self.config["detect_channels"][self.index_transform]
+        self.name = f"{self.channel_reference}-{self.channel_transform}"
 
     def requires(self):
         return [
@@ -196,7 +202,9 @@ class ColocalizeTrack(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
-        self.logger.info(f"Colocalizing {self.index_reference}<-{self.index_transform}")
+        self.logger.info(
+            f"Colocalizing {self.channel_reference}<-{self.channel_transform}"
+        )
 
         df_reference = koopa.io.load_parquet(self.input()[0].path)
         df_transform = koopa.io.load_parquet(self.input()[1].path)
