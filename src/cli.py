@@ -1,12 +1,70 @@
 """Command line interface."""
 
+# Suppress noisy output BEFORE importing anything else
+import os
 import sys
+import warnings
+
+# ASCII art banners
+BANNER_START = r"""
+▄ •▄              ▄▄▄· ▄▄▄·
+█▌▄▌▪▪     ▪     ▐█ ▄█▐█ ▀█
+▐▀▀▄· ▄█▀▄  ▄█▀▄  ██▀·▄█▀▀█
+▐█.█▌▐█▌.▐▌▐█▌.▐▌▐█▪·•▐█ ▪▐▌
+·▀  ▀ ▀█▄▀▪ ▀█▄▀▪.▀    ▀  ▀
+"""
+
+BANNER_SUCCESS = r"""
+.▄▄ · ▄• ▄▌ ▄▄·  ▄▄· ▄▄▄ ..▄▄ · .▄▄ ·   \(^‿^)/
+▐█ ▀. █▪██▌▐█ ▌▪▐█ ▌▪▀▄.▀·▐█ ▀. ▐█ ▀.
+▄▀▀▀█▄█▌▐█▌██ ▄▄██ ▄▄▐▀▀▪▄▄▀▀▀█▄▄▀▀▀█▄
+▐█▄▪▐█▐█▄█▌▐███▌▐███▌▐█▄▄▌▐█▄▪▐█▐█▄▪▐█
+ ▀▀▀▀  ▀▀▀ ·▀▀▀ ·▀▀▀  ▀▀▀  ▀▀▀▀  ▀▀▀▀
+"""
+
+BANNER_FAILURE = r"""
+·▄▄▄ ▄▄▄· ▪  ▄▄▌  ▄▄▄ .·▄▄▄▄    (╯°□°)╯︵ ┻━┻
+▐▄▄·▐█ ▀█ ██ ██•  ▀▄.▀·██▪ ██
+██▪ ▄█▀▀█ ▐█·██▪  ▐▀▀▪▄▐█· ▐█▌
+██▌.▐█ ▪▐▌▐█▌▐█▌▐▌▐█▄▄▌██. ██
+▀▀▀  ▀  ▀ ▀▀▀.▀▀▀  ▀▀▀ ▀▀▀▀▀•
+"""
+
+# Suppress TensorFlow/Keras noise
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # FATAL only
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+
+# Suppress Keras progress bars and cellpose banner
+os.environ["KERAS_BACKEND"] = os.environ.get("KERAS_BACKEND", "tensorflow")
+os.environ["CELLPOSE_QUIET"] = "1"
+
+# Suppress various warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*Compiled the loaded model.*")
+warnings.filterwarnings("ignore", message=".*overflow encountered.*")
+
 import luigi
 
 from . import util
 from . import cli_args
 from .postprocess import Merge
 from .postprocess import GPUMerge
+
+
+def _suppress_keras_progress():
+    """Disable Keras progress bar output."""
+    try:
+        # TensorFlow 2.x
+        import tensorflow as tf
+
+        tf.get_logger().setLevel("ERROR")
+        # Disable Keras progress bars
+        if hasattr(tf.keras.utils, "disable_interactive_logging"):
+            tf.keras.utils.disable_interactive_logging()
+    except (ImportError, AttributeError):
+        pass
 
 
 def main():
@@ -18,22 +76,64 @@ def main():
         print(util.format_environment_info())
         sys.exit(0)
 
-    # Set up configuration and logging
+    # Set up configuration first to get output_path
     util.set_configuration(args.config)
-    util.set_logging()
+    config = util.get_configuration()
 
-    # Log environment information at startup
-    import logging
+    # Ensure output directory exists before setting up logging
+    os.makedirs(config["output_path"], exist_ok=True)
 
-    logger = logging.getLogger("koopa-luigi")
+    # Set up logging with file output
+    util.set_logging(output_path=config["output_path"], verbose=args.verbose)
+    logger = util.get_logger("cli")
+
+    # Suppress Keras/TensorFlow progress bars
+    _suppress_keras_progress()
+
+    # Log startup information
     env_info = util.get_environment_info()
-    logger.info("=" * 50)
-    logger.info("Starting Koopa-Luigi Pipeline")
+    for line in BANNER_START.strip().split("\n"):
+        logger.info(line)
+    logger.info("")
     logger.info(f"Python: {env_info['python_version']}")
-    logger.info(f"Virtual Environment: {env_info['virtual_env'] or 'None'}")
-    logger.info("=" * 50)
+    logger.info(f"Virtual env: {env_info['virtual_env'] or 'None'}")
+    logger.info(f"Input: {config['input_path']}")
+    logger.info(f"Output: {config['output_path']}")
+    logger.info(f"Log file: {os.path.join(config['output_path'], 'koopa.log')}")
+    logger.info(
+        f"Mode: {'GPU' if args.gpu else 'CPU'} with {1 if args.gpu else args.workers} worker(s)"
+    )
+    if args.skip_incompatible:
+        logger.info("Skip incompatible models: enabled")
+    logger.info("")
 
-    # Run Luigi tasks
-    tasks = [GPUMerge()] if args.gpu else [Merge()]
+    # Store skip_incompatible in config for tasks to access
+    luigi_config = luigi.configuration.get_config()
+    luigi_config.set("core", "skip_incompatible", str(args.skip_incompatible))
+
+    # Run Luigi tasks with suppressed Luigi logging
+    tasks = (
+        [GPUMerge(skip_incompatible=args.skip_incompatible)]
+        if args.gpu
+        else [Merge(skip_incompatible=args.skip_incompatible)]
+    )
     workers = 1 if args.gpu else args.workers
-    luigi.build(tasks, local_scheduler=True, workers=workers)
+
+    # Suppress Luigi's internal logging during build
+    import logging as _logging
+
+    for name in ["luigi", "luigi-interface", "luigi.scheduler", "luigi.worker"]:
+        _logging.getLogger(name).setLevel(_logging.CRITICAL)
+
+    with util.log_timing(logger, "pipeline execution"):
+        success = luigi.build(
+            tasks, local_scheduler=True, workers=workers, log_level="CRITICAL"
+        )
+
+    if success:
+        for line in BANNER_SUCCESS.strip().split("\n"):
+            logger.info(line)
+    else:
+        for line in BANNER_FAILURE.strip().split("\n"):
+            logger.error(line)
+        logger.error("Check koopa.log for details.")

@@ -6,8 +6,7 @@ import koopa.preprocess
 import luigi
 import numpy as np
 
-from .util import LuigiFileTask
-from .util import LuigiTask
+from .util import LuigiFileTask, LuigiTask, log_timing
 
 
 class ReferenceAlignment(LuigiTask):
@@ -24,16 +23,31 @@ class ReferenceAlignment(LuigiTask):
         ]
 
     def run(self):
-        reference, transform = koopa.align.load_alignment_images(
-            self.config["alignment_path"],
-            self.config["channel_reference"],
-            self.config["channel_transform"],
+        ch_ref = self.config["channel_reference"]
+        ch_transform = self.config["channel_transform"]
+        method = self.config["alignment_method"]
+
+        self.logger.info(
+            f"Computing alignment matrix (ch{ch_ref} → ch{ch_transform}, method: {method})"
         )
-        sr = self.__run(reference, transform)
-        koopa.align.visualize_alignment(
-            sr, reference[0], transform[0], self.output()[0].path, self.output()[1].path
-        )
+
+        with log_timing(self.logger, "alignment computation"):
+            reference, transform = koopa.align.load_alignment_images(
+                self.config["alignment_path"],
+                ch_ref,
+                ch_transform,
+            )
+            sr = self.__run(reference, transform)
+            koopa.align.visualize_alignment(
+                sr,
+                reference[0],
+                transform[0],
+                self.output()[0].path,
+                self.output()[1].path,
+            )
+
         koopa.io.save_alignment(self.output()[2].path, sr)
+        self.logger.info("Alignment matrix saved")
 
     def __run(self, reference: np.ndarray, transform: np.ndarray):
         if self.config["alignment_method"] == "pystackreg":
@@ -66,18 +80,42 @@ class Preprocess(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
-        fname_in = koopa.io.find_full_path(
-            self.config["input_path"], self.FileID, self.config["file_ext"]
-        )
-        image = koopa.io.load_raw_image(fname_in, self.config["file_ext"])
-        image = self.__run(image)
-        self.logger.debug(f"Preprocessed {self.FileID}")
+        self.logger.info(f"[{self.FileID}] Preprocessing image")
+
+        with log_timing(self.logger, "preprocessing", self.FileID):
+            try:
+                fname_in = koopa.io.find_full_path(
+                    self.config["input_path"], self.FileID, self.config["file_ext"]
+                )
+            except FileNotFoundError as e:
+                self.logger.error(
+                    f"[{self.FileID}] Input file not found in {self.config['input_path']} "
+                    f"with extension '{self.config['file_ext']}'"
+                )
+                raise
+
+            try:
+                image = koopa.io.load_raw_image(fname_in, self.config["file_ext"])
+            except Exception as e:
+                self.logger.error(
+                    f"[{self.FileID}] Failed to load image from {fname_in}: {e}"
+                )
+                raise
+
+            image = self.__run(image)
+
         koopa.io.save_image(self.output().path, image)
+        self.logger.info(
+            f"[{self.FileID}] Preprocessing complete (shape: {image.shape})"
+        )
 
     def __run(self, image: np.ndarray):
         if image.ndim != 4:
+            self.logger.error(
+                f"[{self.FileID}] Invalid image dimensions: got {image.ndim}D (shape: {image.shape}), expected 4D (CZYX or TZYX)"
+            )
             raise ValueError(
-                f"Image {self.FileID} has {image.ndim} dimensions, expected 4."
+                f"Image {self.FileID} has {image.ndim} dimensions (shape: {image.shape}), expected 4D."
             )
         if not self.config["do_3d"] and not self.config["do_timeseries"]:
             image = koopa.preprocess.register_3d_image(

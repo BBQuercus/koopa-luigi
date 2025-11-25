@@ -42,6 +42,12 @@ def _parse_args():
         action="store_true",
         help="Display environment information and exit.",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose (DEBUG) logging. Default is quiet (INFO) mode.",
+    )
 
     # Utils
     parser.add_argument(

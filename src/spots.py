@@ -1,5 +1,27 @@
 import os
 import sys
+import warnings
+import logging
+
+# Suppress noisy output before importing ML libraries
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["CELLPOSE_QUIET"] = "1"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+warnings.filterwarnings("ignore", message=".*Compiled the loaded model.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# Suppress absl logging
+logging.getLogger("absl").setLevel(logging.CRITICAL)
+
+# Suppress Keras progress bars
+try:
+    import tensorflow as tf
+
+    tf.get_logger().setLevel("ERROR")
+    if hasattr(tf.keras.utils, "disable_interactive_logging"):
+        tf.keras.utils.disable_interactive_logging()
+except (ImportError, AttributeError):
+    pass
 
 import deepblink as pink
 import koopa.colocalize
@@ -8,7 +30,7 @@ import koopa.io
 import koopa.track
 import luigi
 
-from .util import LuigiFileTask
+from .util import LuigiFileTask, log_timing
 from .preprocess import Preprocess
 
 
@@ -33,62 +55,82 @@ class Detect(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
-        skip_incompatible = "--skip-incompatible" in sys.argv
+        import pandas as pd
 
-        image = koopa.io.load_image(self.input().path)
         model_path = self.config["detect_models"][self.index_list]
+        model_name = os.path.basename(model_path)
 
+        self.logger.info(
+            f"[{self.FileID}] Detecting spots in channel {self.index_channel}"
+        )
+
+        # Load image
+        with log_timing(self.logger, "image loading", self.FileID):
+            image = koopa.io.load_image(self.input().path)
+
+        # Load model
         try:
-            model = pink.io.load_model(model_path)
+            with log_timing(self.logger, f"model loading ({model_name})", self.FileID):
+                model = pink.io.load_model(model_path)
         except (TypeError, KeyError, Exception) as e:
             error_msg = str(e)
-            self.logger.warning(
-                f"Failed to load model for channel {self.index_channel}: {error_msg[:100]}"
+
+            # Determine if it's a compatibility issue
+            is_compatibility_issue = any(
+                kw in error_msg
+                for kw in ["trainable", "SpatialDropout2D", "Functional", "keras"]
             )
 
-            if skip_incompatible:
-                self.logger.info(
-                    f"Skipping incompatible model for channel {self.index_channel} (--skip-incompatible enabled)"
+            if self.skip_incompatible:
+                self.logger.warning(
+                    f"[{self.FileID}] Skipping channel {self.index_channel}: "
+                    f"model '{model_name}' incompatible with current environment"
                 )
-                # Create empty DataFrame with expected columns
-                import pandas as pd
-
                 df = pd.DataFrame(columns=["x", "y", "z", "probability"])
                 df.insert(loc=0, column="FileID", value=self.FileID)
                 koopa.io.save_parquet(self.output().path, df)
-                self.logger.info(
-                    f"Created empty results file for channel {self.index_channel}"
-                )
                 return
-            else:
-                # Check if it's a known compatibility issue
-                if "trainable" in error_msg or "SpatialDropout2D" in error_msg:
-                    self.logger.error(
-                        f"Model incompatibility detected for channel {self.index_channel}"
-                    )
-                    self.logger.error(
-                        "This model was created with an older Keras version"
-                    )
-                    self.logger.error("Solutions:")
-                    self.logger.error(
-                        "  1. Run with --skip-incompatible flag to skip this model"
-                    )
-                    self.logger.error(
-                        "  2. Use a virtual environment with TensorFlow 2.13 and Keras 2.x"
-                    )
-                    self.logger.error(
-                        "  3. Update/retrain the model with current TensorFlow/Keras versions"
-                    )
-                raise
 
-        df = koopa.detect.detect_image(
-            image,
-            self.index_channel,
-            model,
-            self.config["refinement_radius"],
-        )
+            # Detailed error message
+            self.logger.error("=" * 60)
+            self.logger.error(f"  Model Load Failed: {model_name}")
+            self.logger.error("=" * 60)
+            self.logger.error(f"File: {self.FileID}")
+            self.logger.error(f"Channel: {self.index_channel}")
+            self.logger.error(f"Model path: {model_path}")
+            self.logger.error(f"Error: {error_msg[:200]}")
+
+            if is_compatibility_issue:
+                self.logger.error("")
+                self.logger.error(
+                    "This appears to be a Keras/TensorFlow version mismatch."
+                )
+                self.logger.error("The model was likely created with an older version.")
+                self.logger.error("")
+                self.logger.error("Solutions:")
+                self.logger.error("  1. Add --skip-incompatible to skip this model")
+                self.logger.error(
+                    "  2. Use ./run_legacy.sh for TensorFlow 2.13 environment"
+                )
+                self.logger.error("  3. Retrain the model with your current TF version")
+            self.logger.error("=" * 60)
+            raise
+
+        # Run detection
+        with log_timing(self.logger, "spot detection", self.FileID):
+            df = koopa.detect.detect_image(
+                image,
+                self.index_channel,
+                model,
+                self.config["refinement_radius"],
+            )
+
         df.insert(loc=0, column="FileID", value=self.FileID)
         koopa.io.save_parquet(self.output().path, df)
+
+        self.logger.info(
+            f"[{self.FileID}] Channel {self.index_channel}: detected {len(df)} spots"
+        )
 
 
 class Track(LuigiFileTask):
@@ -112,19 +154,38 @@ class Track(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
-        df = koopa.io.load_parquet(self.input().path)
-        track = koopa.track.track(
-            df,
-            self.config["search_range"],
-            self.config["gap_frames"],
-            self.config["min_length"],
+        self.logger.info(
+            f"[{self.FileID}] Tracking spots in channel {self.index_channel}"
         )
-        if self.config["do_3d"]:
-            track = koopa.track.link_brightest_particles(df, track)
-        if self.config["subtract_drift"]:
-            track = koopa.track.subtract_drift(track)
-        track = koopa.track.clean_particles(track)
+
+        with log_timing(self.logger, "tracking", self.FileID):
+            df = koopa.io.load_parquet(self.input().path)
+
+            if len(df) == 0:
+                self.logger.warning(
+                    f"[{self.FileID}] No spots to track in channel {self.index_channel}"
+                )
+                koopa.io.save_parquet(self.output().path, df)
+                return
+
+            track = koopa.track.track(
+                df,
+                self.config["search_range"],
+                self.config["gap_frames"],
+                self.config["min_length"],
+            )
+            if self.config["do_3d"]:
+                track = koopa.track.link_brightest_particles(df, track)
+            if self.config["subtract_drift"]:
+                track = koopa.track.subtract_drift(track)
+            track = koopa.track.clean_particles(track)
+
         koopa.io.save_parquet(self.output().path, track)
+
+        n_tracks = track["particle"].nunique() if "particle" in track.columns else 0
+        self.logger.info(
+            f"[{self.FileID}] Channel {self.index_channel}: {n_tracks} tracks from {len(df)} spots"
+        )
 
 
 class ColocalizeFrame(LuigiFileTask):
@@ -140,14 +201,31 @@ class ColocalizeFrame(LuigiFileTask):
         self.name = f"{self.channel_reference}-{self.channel_transform}"
 
     def requires(self):
+        skip = self.skip_incompatible
         if self.config["do_3d"]:
             return [
-                Track(FileID=self.FileID, index_list=self.index_reference),
-                Track(FileID=self.FileID, index_list=self.index_transform),
+                Track(
+                    FileID=self.FileID,
+                    index_list=self.index_reference,
+                    skip_incompatible=skip,
+                ),
+                Track(
+                    FileID=self.FileID,
+                    index_list=self.index_transform,
+                    skip_incompatible=skip,
+                ),
             ]
         return [
-            Detect(FileID=self.FileID, index_list=self.index_reference),
-            Detect(FileID=self.FileID, index_list=self.index_transform),
+            Detect(
+                FileID=self.FileID,
+                index_list=self.index_reference,
+                skip_incompatible=skip,
+            ),
+            Detect(
+                FileID=self.FileID,
+                index_list=self.index_transform,
+                skip_incompatible=skip,
+            ),
         ]
 
     def output(self):
@@ -160,19 +238,31 @@ class ColocalizeFrame(LuigiFileTask):
 
     def run(self):
         self.logger.info(
-            f"Colocalizing {self.channel_reference}<-{self.channel_transform}"
+            f"[{self.FileID}] Colocalizing channels {self.channel_reference} ↔ {self.channel_transform}"
         )
 
-        df_reference = koopa.io.load_parquet(self.input()[0].path)
-        df_transform = koopa.io.load_parquet(self.input()[1].path)
-        df = koopa.colocalize.colocalize_frames(
-            df_reference,
-            df_transform,
-            self.name,
-            self.config["z_distance"] if self.config["do_3d"] else 1,
-            self.config["distance_cutoff"],
-        )
+        with log_timing(self.logger, "colocalization", self.FileID):
+            df_reference = koopa.io.load_parquet(self.input()[0].path)
+            df_transform = koopa.io.load_parquet(self.input()[1].path)
+
+            if len(df_reference) == 0 or len(df_transform) == 0:
+                self.logger.warning(
+                    f"[{self.FileID}] Empty input for colocalization "
+                    f"(ref: {len(df_reference)}, transform: {len(df_transform)} spots)"
+                )
+
+            df = koopa.colocalize.colocalize_frames(
+                df_reference,
+                df_transform,
+                self.name,
+                self.config["z_distance"] if self.config["do_3d"] else 1,
+                self.config["distance_cutoff"],
+            )
+
         koopa.io.save_parquet(self.output().path, df)
+        self.logger.info(
+            f"[{self.FileID}] Colocalization {self.name}: {len(df)} pairs found"
+        )
 
 
 class ColocalizeTrack(LuigiFileTask):
@@ -189,8 +279,16 @@ class ColocalizeTrack(LuigiFileTask):
 
     def requires(self):
         return [
-            Track(FileID=self.FileID, index_list=self.index_reference),
-            Track(FileID=self.FileID, index_list=self.index_transform),
+            Track(
+                FileID=self.FileID,
+                index_list=self.index_reference,
+                skip_incompatible=self.skip_incompatible,
+            ),
+            Track(
+                FileID=self.FileID,
+                index_list=self.index_transform,
+                skip_incompatible=self.skip_incompatible,
+            ),
         ]
 
     def output(self):
@@ -203,16 +301,28 @@ class ColocalizeTrack(LuigiFileTask):
 
     def run(self):
         self.logger.info(
-            f"Colocalizing {self.channel_reference}<-{self.channel_transform}"
+            f"[{self.FileID}] Colocalizing tracks {self.channel_reference} ↔ {self.channel_transform}"
         )
 
-        df_reference = koopa.io.load_parquet(self.input()[0].path)
-        df_transform = koopa.io.load_parquet(self.input()[1].path)
-        df = koopa.colocalize.colocalize_tracks(
-            df_reference,
-            df_transform,
-            self.name,
-            self.config["min_frames"],
-            self.config["distance_cutoff"],
-        )
+        with log_timing(self.logger, "track colocalization", self.FileID):
+            df_reference = koopa.io.load_parquet(self.input()[0].path)
+            df_transform = koopa.io.load_parquet(self.input()[1].path)
+
+            if len(df_reference) == 0 or len(df_transform) == 0:
+                self.logger.warning(
+                    f"[{self.FileID}] Empty input for track colocalization "
+                    f"(ref: {len(df_reference)}, transform: {len(df_transform)} tracks)"
+                )
+
+            df = koopa.colocalize.colocalize_tracks(
+                df_reference,
+                df_transform,
+                self.name,
+                self.config["min_frames"],
+                self.config["distance_cutoff"],
+            )
+
         koopa.io.save_parquet(self.output().path, df)
+        self.logger.info(
+            f"[{self.FileID}] Track colocalization {self.name}: {len(df)} pairs found"
+        )

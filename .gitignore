@@ -128,5 +128,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Other
-tests/
+# Test outputs (fixtures are tracked)
+tests/output/
