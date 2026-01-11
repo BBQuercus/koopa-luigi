@@ -1,11 +1,11 @@
 # Legacy environment requirements (TensorFlow 2.13)
-# Compatible with model_fish.h5 and older Keras 2.x models
+# Compatible with older Keras 2.x deepblink models
 
 tensorflow==2.13.0
 keras==2.13.1
 torch>=2.0.0,<2.2.0  # Compatible versions for older TF
 torchvision>=0.15.0,<0.17.0
-cellpose>=3.0.0,<4.0.0  # Older cellpose version
+cellpose>=4.0.0  # SAM-based cellpose (resample always enabled)
 deepblink>=0.1.4
 luigi>=3.0.0
 pandas>=1.5.0,<2.0.0  # Older pandas for compatibility
@@ -19,8 +19,6 @@ pyarrow>=10.0.0
 # Image reading libraries
 czifile>=2019.7.2
 nd2reader>=3.3.0
-# aicsimageio>=4.9.0  # Older version for compatibility
-# bioformats_jar>=2020.5.27  # Optional: Java-based format support
 
 # Koopa dependencies
 numba>=0.56.0
