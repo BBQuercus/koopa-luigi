@@ -6,6 +6,30 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 os.environ.setdefault("CELLPOSE_QUIET", "1")
 warnings.filterwarnings("ignore", message=".*Compiled the loaded model.*")
 
+
+def _patch_keras_compat():
+    """Patch keras.utils.generic_utils for compatibility with Keras 2.13+.
+
+    The efficientnet package (used by segmentation_models) expects
+    keras.utils.generic_utils.get_custom_objects() but this was removed
+    in Keras 2.13+. This creates a shim to maintain backwards compatibility.
+    """
+    try:
+        import keras.utils
+
+        if not hasattr(keras.utils, "generic_utils"):
+            # Create a shim module with get_custom_objects pointing to the new location
+            import types
+
+            generic_utils = types.ModuleType("generic_utils")
+            generic_utils.get_custom_objects = keras.utils.get_custom_objects
+            keras.utils.generic_utils = generic_utils
+    except ImportError:
+        pass
+
+
+_patch_keras_compat()
+
 import koopa.io
 import luigi
 

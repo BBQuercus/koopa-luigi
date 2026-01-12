@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 #SBATCH --account=fly-image
 #SBATCH --cpus-per-task=48   # CPU cores per task
@@ -15,7 +15,28 @@
 # Configuration
 CONDA_DIR=/tungstenfs/scratch/gchao/eichbast/miniconda/bin/activate
 CONFIG=PATH/TO/KOOPA.cfg
+WORKERS=8
 
-# Run
-source $CONDA_DIR koopa
-koopa-luigi --config $CONFIG --workers 8
+# Try legacy environment first (works with most existing models)
+echo "Attempting with LEGACY environment (TF 2.13)..."
+source $CONDA_DIR koopa_legacy
+
+if koopa-luigi --config $CONFIG --workers $WORKERS; then
+    echo "Pipeline completed successfully with legacy environment."
+    exit 0
+fi
+
+# Legacy failed - try modern environment
+echo ""
+echo "Legacy environment failed. Trying MODERN environment (TF 2.17+)..."
+source $CONDA_DIR koopa_modern
+
+if koopa-luigi --config $CONFIG --workers $WORKERS; then
+    echo "Pipeline completed successfully with modern environment."
+    exit 0
+fi
+
+# Both failed
+echo ""
+echo "ERROR: Pipeline failed with both environments."
+exit 1
