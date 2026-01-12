@@ -13,15 +13,15 @@
 #SBATCH --time=12:00:00  # time required by the job
 
 # Configuration
-CONDA_DIR=/tungstenfs/scratch/gchao/eichbast/miniconda/bin/activate
 CONFIG=PATH/TO/KOOPA.cfg
 WORKERS=8
 
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Try legacy environment first (works with most existing models)
 echo "Attempting with LEGACY environment (TF 2.13)..."
-source $CONDA_DIR koopa_legacy
 
-if koopa-luigi --config $CONFIG --workers $WORKERS; then
+if "$SCRIPT_DIR/run_legacy.sh" --config $CONFIG --workers $WORKERS; then
     echo "Pipeline completed successfully with legacy environment."
     exit 0
 fi
@@ -29,9 +29,8 @@ fi
 # Legacy failed - try modern environment
 echo ""
 echo "Legacy environment failed. Trying MODERN environment (TF 2.17+)..."
-source $CONDA_DIR koopa_modern
 
-if koopa-luigi --config $CONFIG --workers $WORKERS; then
+if "$SCRIPT_DIR/run_modern.sh" --config $CONFIG --workers $WORKERS; then
     echo "Pipeline completed successfully with modern environment."
     exit 0
 fi
