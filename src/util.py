@@ -56,7 +56,9 @@ LOGGER_NAME = "koopa"
 
 
 class FileStatusTracker:
-    """Singleton to track file processing status across the pipeline.
+    """Track file processing status across the pipeline using file-based persistence.
+
+    Uses a JSON file to persist status across worker processes.
 
     Statuses:
     - pending: File discovered but not yet processed
@@ -70,48 +72,122 @@ class FileStatusTracker:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._files = {}
-            cls._instance._errors = {}
+            cls._instance._status_file = None
+            cls._instance._registered_files = set()
+            cls._instance._pre_existing_files = set()
         return cls._instance
+
+    def set_output_path(self, output_path: str):
+        """Set the output path for the status file."""
+        import json
+        self._output_path = output_path
+        self._status_file = os.path.join(output_path, ".file_status.json")
+        # Initialize or clear the status file
+        self._write_status({"files": {}, "errors": {}})
+
+    def _read_status(self) -> dict:
+        """Read status from file."""
+        import json
+        if not self._status_file or not os.path.exists(self._status_file):
+            return {"files": {}, "errors": {}}
+        try:
+            with open(self._status_file, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {"files": {}, "errors": {}}
+
+    def _write_status(self, data: dict):
+        """Write status to file with locking."""
+        import json
+        import fcntl
+        if not self._status_file:
+            return
+        try:
+            with open(self._status_file, "w") as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                json.dump(data, f, indent=2)
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except IOError:
+            pass
+
+    def _get_status_file(self) -> str:
+        """Get the status file path, deriving from config if needed (for worker processes)."""
+        if self._status_file:
+            return self._status_file
+        # Worker process - derive from config
+        try:
+            config = get_configuration()
+            return os.path.join(config["output_path"], ".file_status.json")
+        except (RuntimeError, KeyError):
+            return None
+
+    def _update_status(self, file_id: str, status: str, error: str = None):
+        """Update status for a single file (thread-safe with file locking)."""
+        import json
+        import fcntl
+        status_file = self._get_status_file()
+        if not status_file:
+            return
+        try:
+            # Open for read+write
+            with open(status_file, "r+") as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError:
+                    data = {"files": {}, "errors": {}}
+                data["files"][file_id] = status
+                if error:
+                    data["errors"][file_id] = error
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, indent=2)
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except (IOError, FileNotFoundError):
+            pass
 
     def reset(self):
         """Reset tracker for new pipeline run."""
-        self._files = {}
-        self._errors = {}
+        self._registered_files = set()
+        self._pre_existing_files = set()
+        if self._status_file and os.path.exists(self._status_file):
+            os.remove(self._status_file)
 
-    def register_file(self, file_id: str):
+    def register_file(self, file_id: str, already_complete: bool = False):
         """Register a file for tracking."""
-        if file_id not in self._files:
-            self._files[file_id] = "pending"
+        self._registered_files.add(file_id)
+        if already_complete:
+            self._pre_existing_files.add(file_id)
 
     def mark_processing(self, file_id: str):
         """Mark file as currently processing."""
-        self._files[file_id] = "processing"
+        self._update_status(file_id, "processing")
 
     def mark_success(self, file_id: str):
         """Mark file as successfully completed."""
-        self._files[file_id] = "success"
+        self._update_status(file_id, "success")
 
     def mark_failed(self, file_id: str, error: str = None):
         """Mark file as failed with optional error message."""
-        self._files[file_id] = "failed"
-        if error:
-            self._errors[file_id] = error
+        self._update_status(file_id, "failed", error)
 
     def mark_skipped(self, file_id: str):
         """Mark file as skipped (already completed)."""
-        self._files[file_id] = "skipped"
+        self._update_status(file_id, "skipped")
 
     def get_status(self, file_id: str) -> str:
         """Get status of a file."""
-        return self._files.get(file_id, "unknown")
+        data = self._read_status()
+        return data["files"].get(file_id, "unknown")
 
     def get_error(self, file_id: str) -> str:
         """Get error message for a file."""
-        return self._errors.get(file_id)
+        data = self._read_status()
+        return data["errors"].get(file_id)
 
     def get_summary(self) -> dict:
         """Get summary of all file statuses."""
+        data = self._read_status()
         summary = {
             "success": [],
             "failed": [],
@@ -119,26 +195,36 @@ class FileStatusTracker:
             "pending": [],
             "processing": [],
         }
-        for file_id, status in self._files.items():
+
+        # Get status from file for all registered files
+        for file_id in self._registered_files:
+            status = data["files"].get(file_id)
             if status in summary:
                 summary[status].append(file_id)
+            elif file_id in self._pre_existing_files:
+                # File was pre-existing and not processed this run
+                summary["skipped"].append(file_id)
             else:
+                # File was registered but no status recorded - likely failed before tracking
                 summary["pending"].append(file_id)
-        return summary
+
+        return summary, data.get("errors", {})
 
     def has_failures(self) -> bool:
         """Check if any files failed."""
-        return any(status == "failed" for status in self._files.values())
+        data = self._read_status()
+        return any(status == "failed" for status in data["files"].values())
 
-    def format_summary(self, logger=None) -> list:
+    def format_summary(self) -> list:
         """Format summary for display. Returns list of log lines."""
-        summary = self.get_summary()
+        summary, errors = self.get_summary()
         lines = []
 
-        total = len(self._files)
+        total = len(self._registered_files)
         success_count = len(summary["success"])
         failed_count = len(summary["failed"])
         skipped_count = len(summary["skipped"])
+        pending_count = len(summary["pending"])
 
         lines.append("")
         lines.append("=" * 50)
@@ -148,6 +234,8 @@ class FileStatusTracker:
         lines.append(f"  Successful:  {success_count}")
         lines.append(f"  Skipped:     {skipped_count} (already completed)")
         lines.append(f"  Failed:      {failed_count}")
+        if pending_count > 0:
+            lines.append(f"  Not started: {pending_count}")
         lines.append("")
 
         if summary["success"]:
@@ -165,7 +253,7 @@ class FileStatusTracker:
         if summary["failed"]:
             lines.append("Failed files:")
             for f in sorted(summary["failed"]):
-                error = self._errors.get(f, "Unknown error")
+                error = errors.get(f, "Unknown error")
                 lines.append(f"  [FAIL] {f}")
                 lines.append(f"         Error: {error}")
             lines.append("")

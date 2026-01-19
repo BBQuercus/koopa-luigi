@@ -88,8 +88,9 @@ def main():
     util.set_logging(output_path=config["output_path"], verbose=args.verbose)
     logger = util.get_logger("cli")
 
-    # Reset file tracker for this run
+    # Initialize file tracker with output path for cross-process persistence
     file_tracker.reset()
+    file_tracker.set_output_path(config["output_path"])
 
     # Suppress Keras/TensorFlow progress bars
     _suppress_keras_progress()
@@ -144,12 +145,12 @@ def main():
             logger.info(line)
     else:
         # Also log failed files prominently
-        summary = file_tracker.get_summary()
+        summary, errors = file_tracker.get_summary()
         if summary["failed"]:
             logger.error("")
             logger.error("FAILED FILES:")
             for f in sorted(summary["failed"]):
-                error = file_tracker.get_error(f)
+                error = errors.get(f)
                 logger.error(f"  {f}")
                 if error:
                     logger.error(f"    -> {error}")

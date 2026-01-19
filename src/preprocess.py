@@ -79,14 +79,6 @@ class Preprocess(LuigiFileTask):
         )
         return luigi.LocalTarget(fname_out)
 
-    def complete(self):
-        """Check if task is complete and update tracker accordingly."""
-        is_complete = super().complete()
-        if is_complete:
-            # Output already exists - mark as skipped
-            file_tracker.mark_skipped(self.FileID)
-        return is_complete
-
     def run(self):
         file_tracker.mark_processing(self.FileID)
         self.logger.info(f"[{self.FileID}] Preprocessing image")

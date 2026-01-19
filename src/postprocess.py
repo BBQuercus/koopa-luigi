@@ -28,9 +28,11 @@ class Merge(LuigiTask):
         self._total_files = len(self.fnames)
         self.logger.info(f"Found {self._total_files} files to process")
         self.logger.debug(f"Files: {self.fnames}")
-        # Register all files with the tracker
+        # Register all files with the tracker, checking which are already complete
+        preprocessed_dir = os.path.join(self.config["output_path"], "preprocessed")
         for fname in self.fnames:
-            file_tracker.register_file(fname)
+            output_exists = os.path.exists(os.path.join(preprocessed_dir, f"{fname}.tif"))
+            file_tracker.register_file(fname, already_complete=output_exists)
 
     def requires(self):
         requirements = {}
