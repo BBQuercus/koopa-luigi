@@ -51,6 +51,7 @@ from . import util
 from . import cli_args
 from .postprocess import Merge
 from .postprocess import GPUMerge
+from .util import file_tracker
 
 
 def _suppress_keras_progress():
@@ -86,6 +87,9 @@ def main():
     # Set up logging with file output
     util.set_logging(output_path=config["output_path"], verbose=args.verbose)
     logger = util.get_logger("cli")
+
+    # Reset file tracker for this run
+    file_tracker.reset()
 
     # Suppress Keras/TensorFlow progress bars
     _suppress_keras_progress()
@@ -130,10 +134,27 @@ def main():
             tasks, local_scheduler=True, workers=workers, log_level="CRITICAL"
         )
 
+    # Show file processing summary
+    summary_lines = file_tracker.format_summary()
+    for line in summary_lines:
+        logger.info(line)
+
     if success:
         for line in BANNER_SUCCESS.strip().split("\n"):
             logger.info(line)
     else:
+        # Also log failed files prominently
+        summary = file_tracker.get_summary()
+        if summary["failed"]:
+            logger.error("")
+            logger.error("FAILED FILES:")
+            for f in sorted(summary["failed"]):
+                error = file_tracker.get_error(f)
+                logger.error(f"  {f}")
+                if error:
+                    logger.error(f"    -> {error}")
+            logger.error("")
+
         for line in BANNER_FAILURE.strip().split("\n"):
             logger.error(line)
         logger.error("Check koopa.log for details.")

@@ -14,6 +14,7 @@ from .spots import Detect
 from .spots import Track
 from .util import LuigiTask
 from .util import log_timing
+from .util import file_tracker
 
 
 class Merge(LuigiTask):
@@ -27,6 +28,9 @@ class Merge(LuigiTask):
         self._total_files = len(self.fnames)
         self.logger.info(f"Found {self._total_files} files to process")
         self.logger.debug(f"Files: {self.fnames}")
+        # Register all files with the tracker
+        for fname in self.fnames:
+            file_tracker.register_file(fname)
 
     def requires(self):
         requirements = {}

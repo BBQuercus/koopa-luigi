@@ -55,6 +55,129 @@ warnings.filterwarnings("ignore", category=UnconsumedParameterWarning)
 LOGGER_NAME = "koopa"
 
 
+class FileStatusTracker:
+    """Singleton to track file processing status across the pipeline.
+
+    Statuses:
+    - pending: File discovered but not yet processed
+    - processing: Currently being processed
+    - success: Completed successfully
+    - failed: Failed with error
+    - skipped: Already completed (output exists)
+    """
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._files = {}
+            cls._instance._errors = {}
+        return cls._instance
+
+    def reset(self):
+        """Reset tracker for new pipeline run."""
+        self._files = {}
+        self._errors = {}
+
+    def register_file(self, file_id: str):
+        """Register a file for tracking."""
+        if file_id not in self._files:
+            self._files[file_id] = "pending"
+
+    def mark_processing(self, file_id: str):
+        """Mark file as currently processing."""
+        self._files[file_id] = "processing"
+
+    def mark_success(self, file_id: str):
+        """Mark file as successfully completed."""
+        self._files[file_id] = "success"
+
+    def mark_failed(self, file_id: str, error: str = None):
+        """Mark file as failed with optional error message."""
+        self._files[file_id] = "failed"
+        if error:
+            self._errors[file_id] = error
+
+    def mark_skipped(self, file_id: str):
+        """Mark file as skipped (already completed)."""
+        self._files[file_id] = "skipped"
+
+    def get_status(self, file_id: str) -> str:
+        """Get status of a file."""
+        return self._files.get(file_id, "unknown")
+
+    def get_error(self, file_id: str) -> str:
+        """Get error message for a file."""
+        return self._errors.get(file_id)
+
+    def get_summary(self) -> dict:
+        """Get summary of all file statuses."""
+        summary = {
+            "success": [],
+            "failed": [],
+            "skipped": [],
+            "pending": [],
+            "processing": [],
+        }
+        for file_id, status in self._files.items():
+            if status in summary:
+                summary[status].append(file_id)
+            else:
+                summary["pending"].append(file_id)
+        return summary
+
+    def has_failures(self) -> bool:
+        """Check if any files failed."""
+        return any(status == "failed" for status in self._files.values())
+
+    def format_summary(self, logger=None) -> list:
+        """Format summary for display. Returns list of log lines."""
+        summary = self.get_summary()
+        lines = []
+
+        total = len(self._files)
+        success_count = len(summary["success"])
+        failed_count = len(summary["failed"])
+        skipped_count = len(summary["skipped"])
+
+        lines.append("")
+        lines.append("=" * 50)
+        lines.append("  FILE PROCESSING SUMMARY")
+        lines.append("=" * 50)
+        lines.append(f"  Total files: {total}")
+        lines.append(f"  Successful:  {success_count}")
+        lines.append(f"  Skipped:     {skipped_count} (already completed)")
+        lines.append(f"  Failed:      {failed_count}")
+        lines.append("")
+
+        if summary["success"]:
+            lines.append("Successful files:")
+            for f in sorted(summary["success"]):
+                lines.append(f"  [OK] {f}")
+            lines.append("")
+
+        if summary["skipped"]:
+            lines.append("Skipped files (already completed):")
+            for f in sorted(summary["skipped"]):
+                lines.append(f"  [SKIP] {f}")
+            lines.append("")
+
+        if summary["failed"]:
+            lines.append("Failed files:")
+            for f in sorted(summary["failed"]):
+                error = self._errors.get(f, "Unknown error")
+                lines.append(f"  [FAIL] {f}")
+                lines.append(f"         Error: {error}")
+            lines.append("")
+
+        lines.append("=" * 50)
+        return lines
+
+
+# Global tracker instance
+file_tracker = FileStatusTracker()
+
+
 def get_logger(name: str = None) -> logging.Logger:
     """Get a logger with consistent naming.
 
@@ -144,7 +267,8 @@ def set_logging(output_path: str = None, verbose: bool = False, append: bool = F
         noisy = logging.getLogger(logger_name)
         noisy.handlers.clear()  # Remove any console handlers
         noisy.propagate = True  # Allow propagation to root for file logging
-        # Don't set level - let them log at their default levels to file
+        # Set WARNING level to prevent DEBUG spam (numba alone produces millions of DEBUG lines)
+        noisy.setLevel(logging.WARNING)
 
 
 @contextmanager

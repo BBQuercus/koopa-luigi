@@ -6,7 +6,7 @@ import koopa.preprocess
 import luigi
 import numpy as np
 
-from .util import LuigiFileTask, LuigiTask, log_timing
+from .util import LuigiFileTask, LuigiTask, log_timing, file_tracker
 
 
 class ReferenceAlignment(LuigiTask):
@@ -79,7 +79,16 @@ class Preprocess(LuigiFileTask):
         )
         return luigi.LocalTarget(fname_out)
 
+    def complete(self):
+        """Check if task is complete and update tracker accordingly."""
+        is_complete = super().complete()
+        if is_complete:
+            # Output already exists - mark as skipped
+            file_tracker.mark_skipped(self.FileID)
+        return is_complete
+
     def run(self):
+        file_tracker.mark_processing(self.FileID)
         self.logger.info(f"[{self.FileID}] Preprocessing image")
 
         with log_timing(self.logger, "preprocessing", self.FileID):
@@ -88,34 +97,41 @@ class Preprocess(LuigiFileTask):
                     self.config["input_path"], self.FileID, self.config["file_ext"]
                 )
             except FileNotFoundError as e:
-                self.logger.error(
-                    f"[{self.FileID}] Input file not found in {self.config['input_path']} "
+                error_msg = (
+                    f"Input file not found in {self.config['input_path']} "
                     f"with extension '{self.config['file_ext']}'"
                 )
+                self.logger.error(f"[{self.FileID}] FAILED: {error_msg}")
+                file_tracker.mark_failed(self.FileID, error_msg)
                 raise
 
             try:
                 image = koopa.io.load_raw_image(fname_in, self.config["file_ext"])
             except Exception as e:
-                self.logger.error(
-                    f"[{self.FileID}] Failed to load image from {fname_in}: {e}"
-                )
+                error_msg = f"Failed to load image: {e}"
+                self.logger.error(f"[{self.FileID}] FAILED: {error_msg}")
+                self.logger.error(f"[{self.FileID}] Source file: {fname_in}")
+                file_tracker.mark_failed(self.FileID, error_msg)
                 raise
 
-            image = self.__run(image)
+            try:
+                image = self.__run(image)
+            except Exception as e:
+                error_msg = f"Preprocessing error: {e}"
+                self.logger.error(f"[{self.FileID}] FAILED: {error_msg}")
+                file_tracker.mark_failed(self.FileID, error_msg)
+                raise
 
         koopa.io.save_image(self.output().path, image)
+        file_tracker.mark_success(self.FileID)
         self.logger.info(
             f"[{self.FileID}] Preprocessing complete (shape: {image.shape})"
         )
 
     def __run(self, image: np.ndarray):
         if image.ndim != 4:
-            self.logger.error(
-                f"[{self.FileID}] Invalid image dimensions: got {image.ndim}D (shape: {image.shape}), expected 4D (CZYX or TZYX)"
-            )
             raise ValueError(
-                f"Image {self.FileID} has {image.ndim} dimensions (shape: {image.shape}), expected 4D."
+                f"Invalid image dimensions: got {image.ndim}D (shape: {image.shape}), expected 4D (CZYX or TZYX)"
             )
         if not self.config["do_3d"] and not self.config["do_timeseries"]:
             image = koopa.preprocess.register_3d_image(
