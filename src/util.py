@@ -215,6 +215,31 @@ class FileStatusTracker:
         data = self._read_status()
         return any(status == "failed" for status in data["files"].values())
 
+    def _simplify_error(self, error: str) -> str:
+        """Simplify error messages for non-technical users."""
+        if not error:
+            return "Unknown error"
+
+        # Extract just the key message, remove full paths
+        error = error.replace("Failed to load image: ", "")
+
+        # Common error patterns -> simple explanations
+        if "Could not merge channels" in error or "all input arrays must have the same shape" in error:
+            return "Image channels have mismatched sizes (corrupted or incomplete file)"
+        if "not found" in error.lower():
+            return "File not found"
+        if "permission" in error.lower():
+            return "Permission denied"
+        if "memory" in error.lower():
+            return "Out of memory"
+        if "dimension" in error.lower() or "shape" in error.lower():
+            return "Invalid image dimensions"
+
+        # Truncate long errors
+        if len(error) > 80:
+            return error[:77] + "..."
+        return error
+
     def format_summary(self) -> list:
         """Format summary for display. Returns list of log lines."""
         summary, errors = self.get_summary()
@@ -228,34 +253,33 @@ class FileStatusTracker:
 
         lines.append("")
         lines.append("=" * 50)
-        lines.append("  FILE PROCESSING SUMMARY")
+        lines.append("  RESULTS")
         lines.append("=" * 50)
-        lines.append(f"  Total files: {total}")
-        lines.append(f"  Successful:  {success_count}")
-        lines.append(f"  Skipped:     {skipped_count} (already completed)")
-        lines.append(f"  Failed:      {failed_count}")
-        if pending_count > 0:
-            lines.append(f"  Not started: {pending_count}")
+
+        # Show a simple status line
+        if failed_count == 0 and pending_count == 0:
+            lines.append(f"  All {total} files processed successfully!")
+        else:
+            lines.append(f"  {success_count + skipped_count} of {total} files OK")
+            if failed_count > 0:
+                lines.append(f"  {failed_count} file(s) FAILED")
+
+        lines.append("")
+        lines.append(f"  New:      {success_count} processed this run")
+        lines.append(f"  Skipped:  {skipped_count} already done")
+        if failed_count > 0:
+            lines.append(f"  Failed:   {failed_count}")
         lines.append("")
 
-        if summary["success"]:
-            lines.append("Successful files:")
-            for f in sorted(summary["success"]):
-                lines.append(f"  [OK] {f}")
-            lines.append("")
-
-        if summary["skipped"]:
-            lines.append("Skipped files (already completed):")
-            for f in sorted(summary["skipped"]):
-                lines.append(f"  [SKIP] {f}")
-            lines.append("")
-
+        # Only list failed files (not success/skipped - too verbose)
         if summary["failed"]:
-            lines.append("Failed files:")
+            lines.append("-" * 50)
+            lines.append("  FAILED FILES")
+            lines.append("-" * 50)
             for f in sorted(summary["failed"]):
-                error = errors.get(f, "Unknown error")
-                lines.append(f"  [FAIL] {f}")
-                lines.append(f"         Error: {error}")
+                lines.append(f"  {f}")
+                error = self._simplify_error(errors.get(f))
+                lines.append(f"    -> {error}")
             lines.append("")
 
         lines.append("=" * 50)

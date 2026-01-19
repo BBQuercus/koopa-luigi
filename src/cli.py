@@ -144,18 +144,8 @@ def main():
         for line in BANNER_SUCCESS.strip().split("\n"):
             logger.info(line)
     else:
-        # Also log failed files prominently
-        summary, errors = file_tracker.get_summary()
-        if summary["failed"]:
-            logger.error("")
-            logger.error("FAILED FILES:")
-            for f in sorted(summary["failed"]):
-                error = errors.get(f)
-                logger.error(f"  {f}")
-                if error:
-                    logger.error(f"    -> {error}")
-            logger.error("")
-
         for line in BANNER_FAILURE.strip().split("\n"):
             logger.error(line)
-        logger.error("Check koopa.log for details.")
+        logger.error("")
+        logger.error("The failed files listed above may have corrupted data.")
+        logger.error("Try re-exporting them from your microscope software.")
