@@ -127,7 +127,10 @@ class Preprocess(LuigiFileTask):
             )
         if not self.config["do_3d"] and not self.config["do_timeseries"]:
             image = koopa.preprocess.register_3d_image(
-                image, self.config["registration_method"]
+                image,
+                self.config["registration_method"],
+                self.config["z_start"],
+                self.config["z_end"],
             )
         if self.config["do_3d"] or self.config["do_timeseries"]:
             image = koopa.preprocess.trim_image(
