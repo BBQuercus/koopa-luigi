@@ -196,9 +196,14 @@ class ColocalizeFrame(LuigiFileTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.channel_reference = self.config["detect_channels"][self.index_reference]
-        self.channel_transform = self.config["detect_channels"][self.index_transform]
+        # index_reference/index_transform are image channel indices from coloc_channels
+        self.channel_reference = self.index_reference
+        self.channel_transform = self.index_transform
         self.name = f"{self.channel_reference}-{self.channel_transform}"
+        # Convert to indices into detect_channels for Detect/Track tasks
+        detect_channels = self.config["detect_channels"]
+        self._idx_reference = detect_channels.index(self.channel_reference)
+        self._idx_transform = detect_channels.index(self.channel_transform)
 
     def requires(self):
         skip = self.skip_incompatible
@@ -206,24 +211,24 @@ class ColocalizeFrame(LuigiFileTask):
             return [
                 Track(
                     FileID=self.FileID,
-                    index_list=self.index_reference,
+                    index_list=self._idx_reference,
                     skip_incompatible=skip,
                 ),
                 Track(
                     FileID=self.FileID,
-                    index_list=self.index_transform,
+                    index_list=self._idx_transform,
                     skip_incompatible=skip,
                 ),
             ]
         return [
             Detect(
                 FileID=self.FileID,
-                index_list=self.index_reference,
+                index_list=self._idx_reference,
                 skip_incompatible=skip,
             ),
             Detect(
                 FileID=self.FileID,
-                index_list=self.index_transform,
+                index_list=self._idx_transform,
                 skip_incompatible=skip,
             ),
         ]
@@ -273,20 +278,25 @@ class ColocalizeTrack(LuigiFileTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.channel_reference = self.config["detect_channels"][self.index_reference]
-        self.channel_transform = self.config["detect_channels"][self.index_transform]
+        # index_reference/index_transform are image channel indices from coloc_channels
+        self.channel_reference = self.index_reference
+        self.channel_transform = self.index_transform
         self.name = f"{self.channel_reference}-{self.channel_transform}"
+        # Convert to indices into detect_channels for Track tasks
+        detect_channels = self.config["detect_channels"]
+        self._idx_reference = detect_channels.index(self.channel_reference)
+        self._idx_transform = detect_channels.index(self.channel_transform)
 
     def requires(self):
         return [
             Track(
                 FileID=self.FileID,
-                index_list=self.index_reference,
+                index_list=self._idx_reference,
                 skip_incompatible=self.skip_incompatible,
             ),
             Track(
                 FileID=self.FileID,
-                index_list=self.index_transform,
+                index_list=self._idx_transform,
                 skip_incompatible=self.skip_incompatible,
             ),
         ]

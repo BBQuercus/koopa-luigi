@@ -15,13 +15,21 @@
 # Configuration
 CONFIG=PATH/TO/KOOPA.cfg
 WORKERS=8
+DEBUG=false  # Set to true for verbose debug output
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Build extra arguments
+EXTRA_ARGS=""
+if [ "$DEBUG" = true ]; then
+    EXTRA_ARGS="-v"
+    echo "Debug mode enabled (verbose logging)"
+fi
 
 # Try legacy environment first (works with most existing models)
 echo "Attempting with LEGACY environment (TF 2.13)..."
 
-if nice -n19 "$SCRIPT_DIR/run_legacy.sh" --config $CONFIG --workers $WORKERS; then
+if nice -n19 "$SCRIPT_DIR/run_legacy.sh" --config $CONFIG --workers $WORKERS $EXTRA_ARGS; then
     echo "Pipeline completed successfully with legacy environment."
     exit 0
 fi
@@ -30,7 +38,7 @@ fi
 echo ""
 echo "Legacy environment failed. Trying MODERN environment (TF 2.17+)..."
 
-if nice -n19 "$SCRIPT_DIR/run_modern.sh" --config $CONFIG --workers $WORKERS; then
+if nice -n19 "$SCRIPT_DIR/run_modern.sh" --config $CONFIG --workers $WORKERS $EXTRA_ARGS; then
     echo "Pipeline completed successfully with modern environment."
     exit 0
 fi
