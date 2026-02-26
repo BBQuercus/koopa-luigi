@@ -1,3 +1,4 @@
+import gc
 import os
 import warnings
 
@@ -5,6 +6,18 @@ import warnings
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 os.environ.setdefault("CELLPOSE_QUIET", "1")
 warnings.filterwarnings("ignore", message=".*Compiled the loaded model.*")
+
+
+def _cleanup_memory():
+    """Force garbage collection and free GPU memory between tasks."""
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
 
 
 def _patch_keras_compat():
@@ -77,6 +90,8 @@ class SegmentCellsSingle(LuigiFileTask):
         self.logger.info(
             f"[{self.FileID}] {selection.capitalize()} segmentation: {n_objects} objects found"
         )
+        del image, segmap
+        _cleanup_memory()
 
 
 class SegmentCellsBoth(LuigiFileTask):
@@ -123,6 +138,8 @@ class SegmentCellsBoth(LuigiFileTask):
         self.logger.info(
             f"[{self.FileID}] Dual segmentation: {segmap_nuclei.max()} nuclei, {segmap_cyto.max()} cyto objects"
         )
+        del image, image_nuclei, image_cyto, segmap_nuclei, segmap_cyto
+        _cleanup_memory()
 
 
 class SegmentCellsPredict(LuigiFileTask):
@@ -157,6 +174,8 @@ class SegmentCellsPredict(LuigiFileTask):
 
         koopa.io.save_image(self.output().path, segmap)
         self.logger.info(f"[{self.FileID}] Cellpose prediction complete")
+        del image, segmap
+        _cleanup_memory()
 
 
 class SegmentCellsMerge(LuigiFileTask):
@@ -200,6 +219,8 @@ class SegmentCellsMerge(LuigiFileTask):
         self.logger.info(
             f"[{self.FileID}] Cellpose merge: {final_count} objects retained (filtered {initial_count - final_count})"
         )
+        del image, yf, segmap
+        _cleanup_memory()
 
 
 class DilateCells(LuigiFileTask):
@@ -227,6 +248,8 @@ class DilateCells(LuigiFileTask):
 
         koopa.io.save_image(self.output().path, dilated)
         self.logger.info(f"[{self.FileID}] Cell dilation complete")
+        del segmap, dilated
+        _cleanup_memory()
 
 
 class SegmentOther(LuigiFileTask):
@@ -267,3 +290,5 @@ class SegmentOther(LuigiFileTask):
         self.logger.info(
             f"[{self.FileID}] Channel {channel} segmentation: {segmap.max()} objects found"
         )
+        del image, segmap
+        _cleanup_memory()

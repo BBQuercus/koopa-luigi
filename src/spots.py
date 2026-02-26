@@ -1,3 +1,4 @@
+import gc
 import os
 import sys
 import warnings
@@ -131,6 +132,8 @@ class Detect(LuigiFileTask):
         self.logger.info(
             f"[{self.FileID}] Channel {self.index_channel}: detected {len(df)} spots"
         )
+        del image, model
+        gc.collect()
 
 
 class Track(LuigiFileTask):
