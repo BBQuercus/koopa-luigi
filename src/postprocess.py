@@ -180,7 +180,13 @@ class Merge(LuigiTask):
             df, df_cell = koopa.postprocess.get_segmentation_data(
                 df, segmaps, self.config
             )
-        except ValueError as e:
+        except (ValueError, NotImplementedError) as e:
+            if isinstance(e, NotImplementedError):
+                self.logger.warning(
+                    f"[{fname}] Skipped: {e}"
+                )
+                file_tracker.mark_failed(fname, str(e))
+                return None
             if "empty" in str(e).lower() or len(df) == 0:
                 self.logger.warning(
                     f"[{fname}] No spots detected - file will be skipped from final output"

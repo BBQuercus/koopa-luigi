@@ -35,6 +35,11 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # FATAL only
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "")
 
+# Prevent TensorFlow from greedily allocating all GPU memory.
+# Without this, TF claims the entire VRAM after running deepblink,
+# leaving no memory for cellpose (PyTorch) on subsequent files.
+os.environ.setdefault("TF_FORCE_GPU_ALLOW_GROWTH", "true")
+
 # Suppress Keras progress bars and cellpose banner
 os.environ["KERAS_BACKEND"] = os.environ.get("KERAS_BACKEND", "tensorflow")
 os.environ["CELLPOSE_QUIET"] = "1"
@@ -140,7 +145,8 @@ def main():
     for line in summary_lines:
         logger.info(line)
 
-    if success:
+    has_failures = len(file_tracker.get_summary()[0]["failed"]) > 0
+    if not has_failures:
         for line in BANNER_SUCCESS.strip().split("\n"):
             logger.info(line)
     else:

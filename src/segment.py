@@ -12,8 +12,12 @@ def _cleanup_memory():
     """Force garbage collection and free GPU memory between tasks."""
     gc.collect()
     try:
+        import tensorflow as tf
+        tf.keras.backend.clear_session()
+    except (ImportError, AttributeError):
+        pass
+    try:
         import torch
-
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except ImportError:
@@ -65,6 +69,7 @@ class SegmentCellsSingle(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
+        _cleanup_memory()
         with suppress_stdout():
             import koopa.segment_cells
 
@@ -110,6 +115,7 @@ class SegmentCellsBoth(LuigiFileTask):
         return luigi.LocalTarget(fname_nuclei), luigi.LocalTarget(fname_cyto)
 
     def run(self):
+        _cleanup_memory()
         with suppress_stdout():
             import koopa.segment_cells
 
@@ -121,8 +127,9 @@ class SegmentCellsBoth(LuigiFileTask):
 
         with log_timing(self.logger, "dual segmentation", self.FileID):
             image = koopa.io.load_image(self.input().path)
-            image_nuclei = image[ch_nuclei]
-            image_cyto = image[ch_cyto]
+            image_nuclei = image[ch_nuclei].copy()
+            image_cyto = image[ch_cyto].copy()
+            del image
 
             if not self.config["do_3d"] and self.config["do_timeseries"]:
                 image_nuclei = koopa.segment_cells.preprocess(image_nuclei)
@@ -157,6 +164,7 @@ class SegmentCellsPredict(LuigiFileTask):
         return luigi.LocalTarget(fname_out)
 
     def run(self):
+        _cleanup_memory()
         with suppress_stdout():
             import koopa.segment_flies
 
