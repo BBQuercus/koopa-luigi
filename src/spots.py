@@ -178,7 +178,13 @@ class Track(LuigiFileTask):
                 self.config["min_length"],
             )
             if self.config["do_3d"]:
-                track = koopa.track.link_brightest_particles(df, track)
+                # NMS: keep only the brightest z-plane per particle.
+                # koopa.track.link_brightest_particles is broken — it re-adds
+                # all unlinked raw detections, inflating the final count.
+                track = (
+                    track.sort_values("mass", ascending=False)
+                    .drop_duplicates(subset="particle", keep="first")
+                )
             if self.config["subtract_drift"]:
                 track = koopa.track.subtract_drift(track)
             track = koopa.track.clean_particles(track)
