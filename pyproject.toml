@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "koopa-luigi"
+version = "0.1.0"
+description = "Luigi-based workflow for smFISH image analysis"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Bastian Eichenberger", email = "bastian@eichenbergers.ch" }]
+keywords = ["biomedical", "bioinformatics", "image analysis", "smFISH", "microscopy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX",
+    "Operating System :: Unix",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "koopa",
+    "luigi>=3.0",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+[project.scripts]
+koopa-luigi = "src.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/BBQuercus/koopa-luigi"
+Documentation = "https://github.com/BBQuercus/koopa-luigi/blob/main/README.md"
+Changelog = "https://github.com/BBQuercus/koopa-luigi/releases"
+Issues = "https://github.com/BBQuercus/koopa-luigi/issues"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

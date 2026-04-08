@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import logging
 import os
 import sys
 import platform
 import time
 import warnings
+from collections.abc import Generator
 from contextlib import contextmanager
-from functools import wraps
+from typing import Any
 
 # Suppress noisy warnings before importing libraries
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -185,7 +188,7 @@ class FileStatusTracker:
         data = self._read_status()
         return data["errors"].get(file_id)
 
-    def get_summary(self) -> dict:
+    def get_summary(self) -> tuple[dict[str, list[str]], dict[str, str]]:
         """Get summary of all file statuses."""
         data = self._read_status()
         summary = {
@@ -240,7 +243,7 @@ class FileStatusTracker:
             return error[:77] + "..."
         return error
 
-    def format_summary(self) -> list:
+    def format_summary(self) -> list[str]:
         """Format summary for display. Returns list of log lines."""
         summary, errors = self.get_summary()
         lines = []
@@ -305,7 +308,7 @@ def get_logger(name: str = None) -> logging.Logger:
     return logging.getLogger(LOGGER_NAME)
 
 
-def set_logging(output_path: str = None, verbose: bool = False, append: bool = False):
+def set_logging(output_path: str | None = None, verbose: bool = False, append: bool = False) -> None:
     """Configure logging with console and file output.
 
     Args:
@@ -384,7 +387,7 @@ def set_logging(output_path: str = None, verbose: bool = False, append: bool = F
 
 
 @contextmanager
-def suppress_stdout():
+def suppress_stdout() -> Generator[None, None, None]:
     """Temporarily suppress stdout/stderr (for silencing noisy library imports).
 
     Uses BOTH Python-level (sys.stdout) and file descriptor level redirection
@@ -422,7 +425,7 @@ def suppress_stdout():
 
 
 @contextmanager
-def log_timing(logger: logging.Logger, operation: str, file_id: str = None):
+def log_timing(logger: logging.Logger, operation: str, file_id: str | None = None) -> Generator[None, None, None]:
     """Context manager to log operation timing.
 
     Args:
@@ -450,7 +453,7 @@ def log_timing(logger: logging.Logger, operation: str, file_id: str = None):
         logger.info(f"{context}{operation.capitalize()} completed in {time_str}")
 
 
-def set_configuration(path: os.PathLike):
+def set_configuration(path: str | os.PathLike) -> None:
     # Parse configuration
     cfg = koopa.io.load_config(path)
     koopa.config.validate_config(cfg)
@@ -474,12 +477,15 @@ def set_configuration(path: os.PathLike):
     # Store config path in environment variable so worker processes can reload it
     os.environ["KOOPA_CONFIG_PATH"] = str(path)
 
-    os.environ["CELLPOSE_LOCAL_MODELS_PATH"] = os.path.join(
-        "/tungstenfs/scratch/gchao/.cellpose"
-    )
+    # Cellpose model path: env var > FMI shared path > user home
+    fmi_cellpose = "/tungstenfs/scratch/gchao/.cellpose"
+    cellpose_path = os.environ.get("CELLPOSE_MODELS_PATH")
+    if not cellpose_path:
+        cellpose_path = fmi_cellpose if os.path.isdir(fmi_cellpose) else os.path.expanduser("~/.cellpose")
+    os.environ["CELLPOSE_LOCAL_MODELS_PATH"] = cellpose_path
 
 
-def get_configuration():
+def get_configuration() -> dict[str, Any]:
     config = {}
     luigi_config = luigi.configuration.get_config()
 
@@ -506,12 +512,13 @@ def get_configuration():
                 "or KOOPA_CONFIG_PATH environment variable must be set."
             )
 
+    import ast
+
     for key, value in luigi_config["core"].items():
         try:
-            eval_value = eval(value)
-        except (NameError, SyntaxError):
-            eval_value = value
-        config[key] = eval_value
+            config[key] = ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            config[key] = value
     return config
 
 
@@ -539,7 +546,7 @@ class LuigiFileTask(luigi.Task):
             set_logging(output_path=self.config.get("output_path"), verbose=False, append=True)
 
 
-def get_environment_info():
+def get_environment_info() -> dict[str, Any]:
     """Get detailed environment information."""
     info = {
         "python_version": sys.version.split()[0],
@@ -617,7 +624,7 @@ def get_environment_info():
     return info
 
 
-def format_environment_info(info=None):
+def format_environment_info(info: dict[str, Any] | None = None) -> str:
     """Format environment information for display."""
     if info is None:
         info = get_environment_info()

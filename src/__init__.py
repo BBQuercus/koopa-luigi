@@ -22,7 +22,12 @@ def _suppress_cellpose_banner():
     pass  # Placeholder - actual suppression happens in util.suppress_stdout()
 
 
-__version__ = "0.0.1"
+try:
+    from importlib.metadata import version
+
+    __version__ = version("koopa-luigi")
+except Exception:
+    __version__ = "0.1.0-dev"
 
 # Don't import anything else at package level - let modules be imported on demand
 # This avoids loading cellpose/tensorflow at import time

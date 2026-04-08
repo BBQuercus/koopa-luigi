@@ -1,4 +1,5 @@
-from typing import Tuple
+from __future__ import annotations
+
 import os
 
 import koopa.io
@@ -6,6 +7,7 @@ import koopa.postprocess
 import koopa.util
 import luigi
 import pandas as pd
+from tqdm import tqdm
 
 # Segment imports will be lazy-loaded when needed
 from .spots import ColocalizeFrame
@@ -51,8 +53,7 @@ class Merge(LuigiTask):
         self.logger.info(f"Merging results from {self._total_files} files")
         dfs = []
         skipped = 0
-        for idx, fname in enumerate(self.fnames, 1):
-            self.logger.info(f"[{idx}/{self._total_files}] Merging {fname}")
+        for fname in tqdm(self.fnames, desc="Merging", unit="file"):
             with log_timing(self.logger, "merge", fname):
                 result = self.__run_single(fname)
             if result is None:
@@ -169,7 +170,7 @@ class Merge(LuigiTask):
             )
         return segmaps
 
-    def __run_single(self, fname: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def __run_single(self, fname: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
         self.logger.debug(f"[{fname}] Loading segmentation maps and spot data")
         req_segmaps, req_spots = self.requires()[fname]
 
@@ -232,13 +233,12 @@ class GPUMerge(Merge):
         for fname in self.fnames:
             requirements.extend(self.get_segmaps(fname, gpu=True).values())
             requirements.extend(self.get_final_spots(fname, gpu=True))
-        self.logger.info(f"requirements - {requirements}")
         return requirements
 
     def output(self):
-        fname = os.path.join(self.config["output_path"], "gpu.tmp")
+        fname = os.path.join(self.config["output_path"], ".gpu_complete")
         return luigi.LocalTarget(fname)
 
     def run(self):
         with open(self.output().path, "w") as f:
-            f.write("Misa can be deleted after running :)")
+            f.write("")

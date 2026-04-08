@@ -11,25 +11,24 @@
 #SBATCH --ntasks=1  # non MPI applications are usually single task
 #SBATCH --output=./logs/%x-%j.log
 #SBATCH --partition=gpu_short  # partition (gpu_short for jobs <12:00:00)
-#SBATCH --time=04:00:00  # time required by the job, if you hit this limit the job will be terminated
+#SBATCH --time=04:00:00  # time required by the job
 
-# Configuration
-CONFIG=PATH/TO/KOOPA.cfg
-DEBUG=false  # Set to true for verbose debug output
+# Usage: sbatch gpu.sh /path/to/koopa.cfg [--verbose]
+CONFIG="${1:?Usage: $0 <config_file> [--verbose]}"
+EXTRA_ARGS="${2:-}"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Build extra arguments
-EXTRA_ARGS=""
-if [ "$DEBUG" = true ]; then
-    EXTRA_ARGS="-v"
-    echo "Debug mode enabled (verbose logging)"
-fi
+echo "============================================"
+echo "  Koopa-Luigi GPU Pipeline"
+echo "  Config: $CONFIG"
+echo "============================================"
 
 # Try legacy environment first (works with most existing models)
+echo ""
 echo "Attempting with LEGACY environment (TF 2.13)..."
 
-if "$SCRIPT_DIR/run_legacy.sh" --config $CONFIG --gpu $EXTRA_ARGS; then
+if "$SCRIPT_DIR/run_legacy.sh" --config "$CONFIG" --gpu $EXTRA_ARGS; then
     echo "Pipeline completed successfully with legacy environment."
     exit 0
 fi
@@ -38,7 +37,7 @@ fi
 echo ""
 echo "Legacy environment failed. Trying MODERN environment (TF 2.17+)..."
 
-if "$SCRIPT_DIR/run_modern.sh" --config $CONFIG --gpu $EXTRA_ARGS; then
+if "$SCRIPT_DIR/run_modern.sh" --config "$CONFIG" --gpu $EXTRA_ARGS; then
     echo "Pipeline completed successfully with modern environment."
     exit 0
 fi

@@ -1,5 +1,7 @@
 """Command line interface."""
 
+from __future__ import annotations
+
 # Suppress noisy output BEFORE importing anything else
 import os
 import sys
@@ -56,6 +58,7 @@ from . import util
 from . import cli_args
 from .postprocess import Merge
 from .postprocess import GPUMerge
+from .preflight import run_preflight
 from .util import file_tracker
 
 
@@ -73,7 +76,7 @@ def _suppress_keras_progress():
         pass
 
 
-def main():
+def main() -> None:
     """Run koopa tasks."""
     args = cli_args._parse_args()
 
@@ -117,6 +120,10 @@ def main():
         logger.info("Skip incompatible models: enabled")
     logger.info("")
 
+    # Run preflight checks before starting pipeline
+    run_preflight(config)
+    logger.info("")
+
     # Store skip_incompatible in config for tasks to access
     luigi_config = luigi.configuration.get_config()
     luigi_config.set("core", "skip_incompatible", str(args.skip_incompatible))
@@ -135,15 +142,22 @@ def main():
     for name in ["luigi", "luigi-interface", "luigi.scheduler", "luigi.worker"]:
         _logging.getLogger(name).setLevel(_logging.CRITICAL)
 
-    with util.log_timing(logger, "pipeline execution"):
-        success = luigi.build(
-            tasks, local_scheduler=True, workers=workers, log_level="CRITICAL"
-        )
+    try:
+        with util.log_timing(logger, "pipeline execution"):
+            success = luigi.build(
+                tasks, local_scheduler=True, workers=workers, log_level="CRITICAL"
+            )
+    except Exception as e:
+        _handle_pipeline_error(logger, e, config)
+        raise SystemExit(1)
 
     # Show file processing summary
     summary_lines = file_tracker.format_summary()
     for line in summary_lines:
         logger.info(line)
+
+    # Show output file statistics
+    _log_output_summary(logger, config)
 
     has_failures = len(file_tracker.get_summary()[0]["failed"]) > 0
     if not has_failures:
@@ -155,3 +169,81 @@ def main():
         logger.error("")
         logger.error("The failed files listed above may have corrupted data.")
         logger.error("Try re-exporting them from your microscope software.")
+
+
+def _log_output_summary(logger, config: dict) -> None:
+    """Log summary of output files with row counts and sizes."""
+    import pandas as pd
+
+    output_path = config.get("output_path", "")
+    summary_file = os.path.join(output_path, "summary.csv")
+    cells_file = os.path.join(output_path, "summary_cells.csv")
+
+    logger.info("")
+    logger.info("-" * 50)
+    logger.info("  OUTPUT")
+    logger.info("-" * 50)
+
+    for label, path in [("Spots", summary_file), ("Cells", cells_file)]:
+        if os.path.isfile(path):
+            try:
+                df = pd.read_csv(path)
+                size_mb = os.path.getsize(path) / (1024 * 1024)
+                logger.info(f"  {label}: {len(df):,} rows ({size_mb:.1f} MB)")
+                logger.info(f"    {path}")
+            except Exception:
+                logger.info(f"  {label}: {path}")
+        else:
+            logger.info(f"  {label}: not generated")
+
+    log_path = os.path.join(output_path, "koopa.log")
+    logger.info(f"  Log: {log_path}")
+    logger.info("")
+
+
+def _handle_pipeline_error(logger, error: Exception, config: dict) -> None:
+    """Translate common exceptions into actionable user guidance."""
+    msg = str(error)
+
+    logger.error("")
+    logger.error("=" * 50)
+    logger.error("  PIPELINE ERROR")
+    logger.error("=" * 50)
+
+    if any(kw in msg for kw in ["trainable", "SpatialDropout2D", "Functional", "keras"]):
+        logger.error("  Model incompatible with current Keras/TensorFlow version.")
+        logger.error("")
+        logger.error("  Try:")
+        logger.error("    1. ./run_legacy.sh --config <cfg>   (for older models)")
+        logger.error("    2. ./run_modern.sh --config <cfg>   (for newer models)")
+        logger.error("    3. Add --skip-incompatible to skip problematic models")
+    elif "No such file or directory" in msg or "FileNotFoundError" in type(error).__name__:
+        logger.error(f"  File not found: {msg}")
+        logger.error("")
+        logger.error("  Check:")
+        logger.error("    - Is the path absolute (starts with /)?")
+        logger.error("    - Do you have read permissions?")
+        logger.error("    - If on a network drive, is it mounted?")
+    elif "out of memory" in msg.lower() or "OOM" in msg or "CUDA" in msg:
+        logger.error("  GPU out of memory.")
+        logger.error("")
+        logger.error("  Try:")
+        logger.error("    - Reduce --workers to 1")
+        logger.error("    - Enable binning in config to reduce image size")
+        logger.error("    - Use CPU mode instead of --gpu")
+    elif "empty" in msg.lower() and "segmentation" in msg.lower():
+        logger.error("  Segmentation produced empty masks.")
+        logger.error("")
+        logger.error("  Check:")
+        logger.error("    - Is the channel index correct? (0-indexed)")
+        logger.error("    - Try adjusting upper_clip (e.g., 0.99)")
+        logger.error("    - Try reducing min_size_nuclei / min_size_cyto")
+    else:
+        logger.error(f"  {type(error).__name__}: {msg[:300]}")
+        logger.error("")
+        logger.error("  Check koopa.log for full traceback.")
+
+    logger.error("")
+    log_path = os.path.join(config.get("output_path", "."), "koopa.log")
+    logger.error(f"  Full log: {log_path}")
+    logger.error("=" * 50)

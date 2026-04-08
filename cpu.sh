@@ -12,24 +12,24 @@
 #SBATCH --partition=cpu_short  # partition (cpu_short for jobs <12:00:00)
 #SBATCH --time=12:00:00  # time required by the job
 
-# Configuration
-CONFIG=PATH/TO/KOOPA.cfg
-WORKERS=8
-DEBUG=false  # Set to true for verbose debug output
+# Usage: sbatch cpu.sh /path/to/koopa.cfg [workers] [--verbose]
+CONFIG="${1:?Usage: $0 <config_file> [workers] [--verbose]}"
+WORKERS="${2:-8}"
+EXTRA_ARGS="${3:-}"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Build extra arguments
-EXTRA_ARGS=""
-if [ "$DEBUG" = true ]; then
-    EXTRA_ARGS="-v"
-    echo "Debug mode enabled (verbose logging)"
-fi
+echo "============================================"
+echo "  Koopa-Luigi CPU Pipeline"
+echo "  Config:  $CONFIG"
+echo "  Workers: $WORKERS"
+echo "============================================"
 
 # Try legacy environment first (works with most existing models)
+echo ""
 echo "Attempting with LEGACY environment (TF 2.13)..."
 
-if nice -n19 "$SCRIPT_DIR/run_legacy.sh" --config $CONFIG --workers $WORKERS $EXTRA_ARGS; then
+if nice -n19 "$SCRIPT_DIR/run_legacy.sh" --config "$CONFIG" --workers "$WORKERS" $EXTRA_ARGS; then
     echo "Pipeline completed successfully with legacy environment."
     exit 0
 fi
@@ -38,7 +38,7 @@ fi
 echo ""
 echo "Legacy environment failed. Trying MODERN environment (TF 2.17+)..."
 
-if nice -n19 "$SCRIPT_DIR/run_modern.sh" --config $CONFIG --workers $WORKERS $EXTRA_ARGS; then
+if nice -n19 "$SCRIPT_DIR/run_modern.sh" --config "$CONFIG" --workers "$WORKERS" $EXTRA_ARGS; then
     echo "Pipeline completed successfully with modern environment."
     exit 0
 fi
