@@ -84,9 +84,12 @@ class Merge(LuigiTask):
 
     def get_final_spots(self, fname: str, gpu: bool = False) -> list:
         skip = self.skip_incompatible
+        tasks = []
+
         if self.config["coloc_enabled"]:
+            # Colocalization tasks for paired channels
             if self.config["do_timeseries"]:
-                return [
+                tasks.extend([
                     ColocalizeTrack(
                         FileID=fname,
                         index_reference=r,
@@ -94,16 +97,34 @@ class Merge(LuigiTask):
                         skip_incompatible=skip,
                     )
                     for r, t in self.config["coloc_channels"]
-                ]
-            return [
-                ColocalizeFrame(
-                    FileID=fname,
-                    index_reference=r,
-                    index_transform=t,
-                    skip_incompatible=skip,
-                )
-                for r, t in self.config["coloc_channels"]
-            ]
+                ])
+            else:
+                tasks.extend([
+                    ColocalizeFrame(
+                        FileID=fname,
+                        index_reference=r,
+                        index_transform=t,
+                        skip_incompatible=skip,
+                    )
+                    for r, t in self.config["coloc_channels"]
+                ])
+
+            # Also detect channels not covered by any coloc pair
+            coloc_channels = set()
+            for r, t in self.config["coloc_channels"]:
+                coloc_channels.add(r)
+                coloc_channels.add(t)
+            for idx, ch in enumerate(self.config["detect_channels"]):
+                if ch not in coloc_channels:
+                    if self.config["do_3d"] or self.config["do_timeseries"]:
+                        tasks.append(
+                            Track(FileID=fname, index_list=idx, skip_incompatible=skip)
+                        )
+                    else:
+                        tasks.append(
+                            Detect(FileID=fname, index_list=idx, gpu=gpu, skip_incompatible=skip)
+                        )
+            return tasks
 
         if self.config["do_3d"] or self.config["do_timeseries"]:
             return [
