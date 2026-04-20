@@ -440,8 +440,12 @@ def log_timing(logger: logging.Logger, operation: str, file_id: str | None = Non
     context = f"[{file_id}] " if file_id else ""
     logger.debug(f"{context}Starting {operation}")
     start_time = time.perf_counter()
+    exc_occurred = False
     try:
         yield
+    except BaseException:
+        exc_occurred = True
+        raise
     finally:
         elapsed = time.perf_counter() - start_time
         if elapsed < 60:
@@ -450,7 +454,10 @@ def log_timing(logger: logging.Logger, operation: str, file_id: str | None = Non
             minutes = int(elapsed // 60)
             seconds = elapsed % 60
             time_str = f"{minutes}m {seconds:.1f}s"
-        logger.info(f"{context}{operation.capitalize()} completed in {time_str}")
+        if exc_occurred:
+            logger.error(f"{context}{operation.capitalize()} failed after {time_str}")
+        else:
+            logger.info(f"{context}{operation.capitalize()} completed in {time_str}")
 
 
 def set_configuration(path: str | os.PathLike) -> None:

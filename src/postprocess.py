@@ -213,6 +213,7 @@ class Merge(LuigiTask):
                 self.logger.warning(
                     f"[{fname}] No spots detected - file will be skipped from final output"
                 )
+                file_tracker.mark_failed(fname, "No spots detected")
                 return None
             self.logger.error(f"[{fname}] Failed to process segmentation data: {e}")
             raise

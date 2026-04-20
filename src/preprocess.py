@@ -37,6 +37,14 @@ class ReferenceAlignment(LuigiTask):
                 ch_ref,
                 ch_transform,
             )
+            # Max-project z-stacks to 2D if needed (companion.ome files
+            # produce 3D arrays that pystackreg cannot handle)
+            reference = [
+                img.max(axis=0) if img.ndim == 3 else img for img in reference
+            ]
+            transform = [
+                img.max(axis=0) if img.ndim == 3 else img for img in transform
+            ]
             sr = self.__run(reference, transform)
             koopa.align.visualize_alignment(
                 sr,

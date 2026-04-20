@@ -159,16 +159,24 @@ def main() -> None:
     # Show output file statistics
     _log_output_summary(logger, config)
 
-    has_failures = len(file_tracker.get_summary()[0]["failed"]) > 0
-    if not has_failures:
-        for line in BANNER_SUCCESS.strip().split("\n"):
-            logger.info(line)
-    else:
+    summary = file_tracker.get_summary()[0]
+    has_failures = len(summary["failed"]) > 0
+    has_pending = len(summary["pending"]) > 0
+    if has_failures or has_pending:
         for line in BANNER_FAILURE.strip().split("\n"):
             logger.error(line)
         logger.error("")
-        logger.error("The failed files listed above may have corrupted data.")
-        logger.error("Try re-exporting them from your microscope software.")
+        if has_failures:
+            logger.error("The failed files listed above may have corrupted data.")
+            logger.error("Try re-exporting them from your microscope software.")
+        if has_pending:
+            logger.error(
+                f"{len(summary['pending'])} file(s) were never processed "
+                f"(a dependency likely failed)."
+            )
+    else:
+        for line in BANNER_SUCCESS.strip().split("\n"):
+            logger.info(line)
 
 
 def _log_output_summary(logger, config: dict) -> None:

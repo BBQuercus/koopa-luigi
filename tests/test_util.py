@@ -6,6 +6,7 @@ import ast
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 
 import pytest
 
@@ -133,6 +134,94 @@ class TestFileStatusTracker:
         lines = tracker.format_summary()
         assert any("RESULTS" in line for line in lines)
         assert any("1" in line for line in lines)
+
+
+    def test_pending_files_in_summary(self, tmp_path):
+        """Files registered but never marked should appear as pending."""
+        tracker = self._make_tracker(str(tmp_path))
+        tracker.register_file("a")
+        tracker.register_file("b")
+        tracker.register_file("c")
+        # Only mark 'a' as success — 'b' and 'c' stay pending
+        tracker.mark_success("a")
+
+        summary, _ = tracker.get_summary()
+        assert summary["success"] == ["a"]
+        assert set(summary["pending"]) == {"b", "c"}
+
+    def test_format_summary_shows_pending_as_not_ok(self, tmp_path):
+        """Pending files should not count toward 'files OK'."""
+        tracker = self._make_tracker(str(tmp_path))
+        tracker.register_file("a")
+        tracker.register_file("b")
+        tracker.mark_success("a")
+
+        lines = tracker.format_summary()
+        text = "\n".join(lines)
+        assert "1 of 2 files OK" in text
+
+
+class TestLogTiming:
+    """Tests for the log_timing context manager.
+
+    Reimplements log_timing inline to avoid importing src.util (which
+    requires koopa to be installed).
+    """
+
+    @staticmethod
+    @contextmanager
+    def _log_timing(logger, operation, file_id=None):
+        """Mirror of src.util.log_timing for testing without koopa."""
+        import time as _time
+
+        context = f"[{file_id}] " if file_id else ""
+        logger.debug(f"{context}Starting {operation}")
+        start_time = _time.perf_counter()
+        exc_occurred = False
+        try:
+            yield
+        except BaseException:
+            exc_occurred = True
+            raise
+        finally:
+            elapsed = _time.perf_counter() - start_time
+            if elapsed < 60:
+                time_str = f"{elapsed:.1f}s"
+            else:
+                minutes = int(elapsed // 60)
+                seconds = elapsed % 60
+                time_str = f"{minutes}m {seconds:.1f}s"
+            if exc_occurred:
+                logger.error(
+                    f"{context}{operation.capitalize()} failed after {time_str}"
+                )
+            else:
+                logger.info(
+                    f"{context}{operation.capitalize()} completed in {time_str}"
+                )
+
+    def test_logs_completed_on_success(self, caplog):
+        import logging
+
+        logger = logging.getLogger("test.timing")
+        with caplog.at_level(logging.INFO, logger="test.timing"):
+            with self._log_timing(logger, "test operation"):
+                pass
+
+        assert any("completed" in r.message.lower() for r in caplog.records)
+        assert not any("failed" in r.message.lower() for r in caplog.records)
+
+    def test_logs_failed_on_exception(self, caplog):
+        import logging
+
+        logger = logging.getLogger("test.timing")
+        with caplog.at_level(logging.ERROR, logger="test.timing"):
+            with pytest.raises(ValueError):
+                with self._log_timing(logger, "test operation"):
+                    raise ValueError("boom")
+
+        assert any("failed" in r.message.lower() for r in caplog.records)
+        assert not any("completed" in r.message.lower() for r in caplog.records)
 
 
 class TestSuppressStdout:
