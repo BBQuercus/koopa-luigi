@@ -13,11 +13,11 @@
 #SBATCH --partition=gpu_short  # partition (gpu_short for jobs <12:00:00)
 #SBATCH --time=04:00:00  # time required by the job
 
-# Usage: sbatch gpu.sh /path/to/koopa.cfg [--verbose]
-CONFIG="${1:?Usage: $0 <config_file> [--verbose]}"
-EXTRA_ARGS="${2:-}"
-
+# Usage: sbatch gpu.sh [config_file] [--verbose]
+# Defaults to ./koopa.cfg (relative to this script) if no config given.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+CONFIG="${1:-$SCRIPT_DIR/koopa.cfg}"
+EXTRA_ARGS="${2:-}"
 
 echo "============================================"
 echo "  Koopa-Luigi GPU Pipeline"

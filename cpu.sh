@@ -12,12 +12,12 @@
 #SBATCH --partition=cpu_short  # partition (cpu_short for jobs <12:00:00)
 #SBATCH --time=12:00:00  # time required by the job
 
-# Usage: sbatch cpu.sh /path/to/koopa.cfg [workers] [--verbose]
-CONFIG="${1:?Usage: $0 <config_file> [workers] [--verbose]}"
+# Usage: sbatch cpu.sh [config_file] [workers] [--verbose]
+# Defaults to ./koopa.cfg (relative to this script) if no config given.
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+CONFIG="${1:-$SCRIPT_DIR/koopa.cfg}"
 WORKERS="${2:-8}"
 EXTRA_ARGS="${3:-}"
-
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 echo "============================================"
 echo "  Koopa-Luigi CPU Pipeline"
