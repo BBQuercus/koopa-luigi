@@ -162,7 +162,21 @@ def main() -> None:
     summary = file_tracker.get_summary()[0]
     has_failures = len(summary["failed"]) > 0
     has_pending = len(summary["pending"]) > 0
-    if has_failures or has_pending:
+    # The final merge outputs are the authoritative signal that the full
+    # pipeline ran to completion — Luigi can otherwise exit after intermediate
+    # tasks without producing them (e.g. if the scheduler drops the Merge task)
+    missing_outputs = [
+        p
+        for p in (
+            os.path.join(config["output_path"], "summary.csv"),
+            os.path.join(config["output_path"], "summary_cells.csv"),
+        )
+        if not os.path.exists(p)
+    ]
+    if args.gpu:
+        missing_outputs = []  # GPU mode produces a stub file, not summary.csv
+
+    if has_failures or has_pending or missing_outputs:
         for line in BANNER_FAILURE.strip().split("\n"):
             logger.error(line)
         logger.error("")
@@ -174,6 +188,14 @@ def main() -> None:
                 f"{len(summary['pending'])} file(s) were never processed "
                 f"(a dependency likely failed)."
             )
+        if missing_outputs:
+            logger.error(
+                "Final merge output not produced — the pipeline did not "
+                "complete. Missing:"
+            )
+            for p in missing_outputs:
+                logger.error(f"  {p}")
+            logger.error("Try rerunning; Luigi occasionally drops the final task.")
     else:
         for line in BANNER_SUCCESS.strip().split("\n"):
             logger.info(line)
