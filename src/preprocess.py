@@ -123,7 +123,6 @@ class Preprocess(LuigiFileTask):
                 raise
 
         koopa.io.save_image(self.output().path, image)
-        file_tracker.mark_success(self.FileID)
         self.logger.info(
             f"[{self.FileID}] Preprocessing complete (shape: {image.shape})"
         )

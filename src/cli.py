@@ -52,6 +52,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*Compiled the loaded model.*")
 warnings.filterwarnings("ignore", message=".*overflow encountered.*")
 
+import time
+
 import luigi
 
 from . import util
@@ -142,9 +144,10 @@ def main() -> None:
     for name in ["luigi", "luigi-interface", "luigi.scheduler", "luigi.worker"]:
         _logging.getLogger(name).setLevel(_logging.CRITICAL)
 
+    pipeline_start = time.time()
     try:
         with util.log_timing(logger, "pipeline execution"):
-            success = luigi.build(
+            build_ok = luigi.build(
                 tasks, local_scheduler=True, workers=workers, log_level="CRITICAL"
             )
     except Exception as e:
@@ -161,41 +164,59 @@ def main() -> None:
 
     summary = file_tracker.get_summary()[0]
     has_failures = len(summary["failed"]) > 0
-    has_pending = len(summary["pending"]) > 0
-    # The final merge outputs are the authoritative signal that the full
-    # pipeline ran to completion — Luigi can otherwise exit after intermediate
-    # tasks without producing them (e.g. if the scheduler drops the Merge task)
-    missing_outputs = [
-        p
-        for p in (
+    # "processing" means Preprocess started but Merge never marked success —
+    # treat it the same as pending (upstream task didn't finish).
+    incomplete = summary["pending"] + summary["processing"]
+    has_pending = len(incomplete) > 0
+    no_files = len(file_tracker._registered_files) == 0
+
+    # Verify the pipeline's final output was actually written this run. A
+    # file left over from a previous run must not count as success.
+    expected_outputs = (
+        [os.path.join(config["output_path"], ".gpu_complete")]
+        if args.gpu
+        else [
             os.path.join(config["output_path"], "summary.csv"),
             os.path.join(config["output_path"], "summary_cells.csv"),
-        )
-        if not os.path.exists(p)
-    ]
-    if args.gpu:
-        missing_outputs = []  # GPU mode produces a stub file, not summary.csv
+        ]
+    )
+    missing_outputs = []
+    for p in expected_outputs:
+        if not os.path.exists(p):
+            missing_outputs.append(p)
+        elif os.path.getmtime(p) < pipeline_start:
+            missing_outputs.append(p)
 
-    if has_failures or has_pending or missing_outputs:
+    if not build_ok or has_failures or has_pending or missing_outputs or no_files:
         for line in BANNER_FAILURE.strip().split("\n"):
             logger.error(line)
         logger.error("")
+        if no_files:
+            logger.error(
+                f"No files with extension '{config['file_ext']}' found in "
+                f"{config['input_path']}"
+            )
+        if not build_ok:
+            logger.error(
+                "Luigi reported task failures — check koopa.log for tracebacks."
+            )
         if has_failures:
             logger.error("The failed files listed above may have corrupted data.")
             logger.error("Try re-exporting them from your microscope software.")
         if has_pending:
             logger.error(
-                f"{len(summary['pending'])} file(s) were never processed "
+                f"{len(incomplete)} file(s) were never completed "
                 f"(a dependency likely failed)."
             )
         if missing_outputs:
             logger.error(
-                "Final merge output not produced — the pipeline did not "
-                "complete. Missing:"
+                "Final pipeline output not produced (or stale from a previous "
+                "run) — the pipeline did not complete. Missing:"
             )
             for p in missing_outputs:
                 logger.error(f"  {p}")
             logger.error("Try rerunning; Luigi occasionally drops the final task.")
+        raise SystemExit(1)
     else:
         for line in BANNER_SUCCESS.strip().split("\n"):
             logger.info(line)

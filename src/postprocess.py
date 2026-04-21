@@ -61,9 +61,11 @@ class Merge(LuigiTask):
             else:
                 dfs.append(result)
 
-        # Save final outputs
+        # Save final outputs. pd.concat raises on an empty list, so fall back
+        # to an empty DataFrame when every file was skipped.
         for idx, target in enumerate(self.output()):
-            df = pd.concat([i[idx] for i in dfs if i is not None], ignore_index=True)
+            frames = [i[idx] for i in dfs if i is not None]
+            df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
             koopa.io.save_csv(target.path, df)
 
         # Summary statistics
@@ -223,6 +225,7 @@ class Merge(LuigiTask):
         self.logger.debug(
             f"[{fname}] Merged {spot_count} spots across {cell_count} cells"
         )
+        file_tracker.mark_success(fname)
         return df, df_cell
 
 
@@ -241,5 +244,8 @@ class GPUMerge(Merge):
         return luigi.LocalTarget(fname)
 
     def run(self):
+        for fname in self.fnames:
+            if file_tracker.get_status(fname) == "processing":
+                file_tracker.mark_success(fname)
         with open(self.output().path, "w") as f:
             f.write("")
