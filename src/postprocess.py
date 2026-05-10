@@ -143,12 +143,22 @@ class Merge(LuigiTask):
         skip = self.skip_incompatible
         segmaps = {}
         if self.config["sego_enabled"]:
-            from .segment import SegmentOther
+            from .dilate import plan_other_segmaps
+            from .segment import DilateSegmentOther, SegmentOther
 
-            for idx, _ in enumerate(self.config["sego_channels"]):
-                segmaps[f"other_{idx}"] = SegmentOther(
-                    FileID=fname, index_list=idx, gpu=gpu, skip_incompatible=skip
-                )
+            plan = plan_other_segmaps(
+                self.config["sego_channels"],
+                self.config.get("sego_dilations") or [],
+            )
+            for key, kind, params in plan:
+                if kind == "segment":
+                    segmaps[key] = SegmentOther(
+                        FileID=fname, gpu=gpu, skip_incompatible=skip, **params
+                    )
+                else:
+                    segmaps[key] = DilateSegmentOther(
+                        FileID=fname, gpu=gpu, skip_incompatible=skip, **params
+                    )
 
         if self.config["brains_enabled"]:
             from .segment import SegmentCellsPredict, DilateCells

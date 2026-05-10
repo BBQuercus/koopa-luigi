@@ -138,6 +138,25 @@ def _check_segmentation(
                 f"— they must match 1:1"
             )
 
+        dilations = config.get("sego_dilations") or []
+        if dilations:
+            if not all(isinstance(entry, list) for entry in dilations):
+                errors.append(
+                    "sego_dilations must be a list of lists (one list per sego_channel), "
+                    "e.g. [[5, 10], []]"
+                )
+            elif len(dilations) != len(channels):
+                errors.append(
+                    f"sego_dilations has {len(dilations)} entries but sego_channels has "
+                    f"{len(channels)} — they must match 1:1"
+                )
+            else:
+                for idx, entry in enumerate(dilations):
+                    if not all(isinstance(r, int) and r >= 0 for r in entry):
+                        errors.append(
+                            f"sego_dilations[{idx}] must contain non-negative integers"
+                        )
+
 
 def _check_input_files(
     config: dict[str, Any], errors: list[str], warnings: list[str]

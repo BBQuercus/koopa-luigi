@@ -50,6 +50,7 @@ _patch_keras_compat()
 import koopa.io
 import luigi
 
+from .dilate import dilate_labels
 from .util import LuigiFileTask, log_timing, suppress_stdout
 from .preprocess import Preprocess
 
@@ -299,4 +300,40 @@ class SegmentOther(LuigiFileTask):
             f"[{self.FileID}] Channel {channel} segmentation: {segmap.max()} objects found"
         )
         del image, segmap
+        _cleanup_memory()
+
+
+class DilateSegmentOther(LuigiFileTask):
+    """Dilate a SegmentOther mask by a configurable pixel radius."""
+
+    index_list = luigi.IntParameter()
+    dilation = luigi.IntParameter()
+
+    def requires(self):
+        return SegmentOther(FileID=self.FileID, index_list=self.index_list)
+
+    def output(self):
+        channel = self.config["sego_channels"][self.index_list]
+        fname_out = os.path.join(
+            self.config["output_path"],
+            f"segmentation_c{channel}_d{self.dilation}",
+            f"{self.FileID}.tif",
+        )
+        return luigi.LocalTarget(fname_out)
+
+    def run(self):
+        channel = self.config["sego_channels"][self.index_list]
+        self.logger.info(
+            f"[{self.FileID}] Dilating channel {channel} segmentation "
+            f"(radius={self.dilation} px)"
+        )
+
+        with log_timing(
+            self.logger, f"channel {channel} dilation d{self.dilation}", self.FileID
+        ):
+            segmap = koopa.io.load_image(self.input().path)
+            dilated = dilate_labels(segmap, radius=int(self.dilation))
+
+        koopa.io.save_image(self.output().path, dilated)
+        del segmap, dilated
         _cleanup_memory()
