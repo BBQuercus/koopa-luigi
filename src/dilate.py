@@ -28,7 +28,8 @@ def plan_other_segmaps(
       - Empty (or missing) ``sego_dilations[idx]`` → legacy: just ``other_{idx}``.
       - Otherwise, for each radius ``r`` in the list:
           - ``r == 0`` → ``other_{idx}`` from SegmentOther
-          - ``r > 0``  → ``other_{idx}_d{r}`` from DilateSegmentOther
+          - ``r != 0`` → ``other_{idx}_d{r}`` from DilateSegmentOther
+            (``r > 0`` dilates, ``r < 0`` erodes; e.g. ``r == -5`` → ``other_{idx}_d-5``)
     """
     plan: list[tuple[str, str, dict]] = []
     dilations = list(sego_dilations) if sego_dilations else []
@@ -53,14 +54,16 @@ def plan_other_segmaps(
 
 
 def dilate_labels(segmap: np.ndarray, radius: int) -> np.ndarray:
-    """Dilate a 2D or 3D labeled segmentation map by ``radius`` pixels.
+    """Grow or shrink a 2D or 3D labeled segmentation map by ``radius`` pixels.
 
-    Uses a unit-radius structuring element iterated ``radius`` times so the
-    result grows by exactly ``radius`` pixels along each axis. Original
-    instance labels are preserved via watershed seeded by the original mask,
-    so adjacent objects stay distinct after dilation.
+    Uses a unit-radius structuring element iterated ``abs(radius)`` times so the
+    result changes by exactly ``abs(radius)`` pixels along each axis. A positive
+    ``radius`` dilates the mask, a negative ``radius`` erodes it, and ``0`` leaves
+    it unchanged. Original instance labels are preserved via watershed seeded by
+    the original mask, so adjacent objects stay distinct. Objects eroded away
+    entirely simply disappear.
     """
-    if radius <= 0:
+    if radius == 0:
         return segmap
 
     if segmap.ndim == 2:
@@ -73,7 +76,10 @@ def dilate_labels(segmap: np.ndarray, radius: int) -> np.ndarray:
         )
 
     binary = segmap > 0
-    mask = ndi.binary_dilation(binary, structure, iterations=radius)
+    if radius > 0:
+        mask = ndi.binary_dilation(binary, structure, iterations=radius)
+    else:
+        mask = ndi.binary_erosion(binary, structure, iterations=-radius)
     return skimage.segmentation.watershed(
         mask.astype(np.uint8), markers=segmap, mask=mask
     )

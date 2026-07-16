@@ -323,9 +323,10 @@ class DilateSegmentOther(LuigiFileTask):
 
     def run(self):
         channel = self.config["sego_channels"][self.index_list]
+        verb = "Eroding" if self.dilation < 0 else "Dilating"
         self.logger.info(
-            f"[{self.FileID}] Dilating channel {channel} segmentation "
-            f"(radius={self.dilation} px)"
+            f"[{self.FileID}] {verb} channel {channel} segmentation "
+            f"(radius={abs(self.dilation)} px)"
         )
 
         with log_timing(

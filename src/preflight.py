@@ -152,9 +152,10 @@ def _check_segmentation(
                 )
             else:
                 for idx, entry in enumerate(dilations):
-                    if not all(isinstance(r, int) and r >= 0 for r in entry):
+                    if not all(isinstance(r, int) for r in entry):
                         errors.append(
-                            f"sego_dilations[{idx}] must contain non-negative integers"
+                            f"sego_dilations[{idx}] must contain integers "
+                            "(positive to dilate, negative to erode, 0 to keep original)"
                         )
 
 

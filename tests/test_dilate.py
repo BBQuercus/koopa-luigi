@@ -47,6 +47,24 @@ class TestDilateLabels:
         out = dilate_labels(seg, 2)
         assert sorted(np.unique(out).tolist()) == [0, 1, 2]
 
+    def test_negative_radius_erodes(self):
+        from src.dilate import dilate_labels
+
+        seg = np.zeros((30, 30), dtype=np.uint16)
+        seg[10:21, 10:21] = 1  # 11x11 block
+        out = dilate_labels(seg, -2)
+        # Eroded region is strictly smaller but non-empty and same label.
+        assert 0 < int((out > 0).sum()) < int((seg > 0).sum())
+        assert set(np.unique(out).tolist()) == {0, 1}
+
+    def test_erosion_can_remove_small_objects(self):
+        from src.dilate import dilate_labels
+
+        seg = np.zeros((30, 30), dtype=np.uint16)
+        seg[15, 15] = 1  # single pixel disappears under any erosion
+        out = dilate_labels(seg, -1)
+        assert int((out > 0).sum()) == 0
+
     def test_rejects_unsupported_dimensions(self):
         from src.dilate import dilate_labels
 
@@ -104,15 +122,25 @@ class TestPreflightDilations:
         _check_segmentation(cfg, errors, warnings)
         assert any("list of lists" in e for e in errors)
 
-    def test_negative_radius_rejected(self):
+    def test_negative_radius_accepted(self):
         from src.preflight import _check_segmentation
 
         errors: list[str] = []
         warnings: list[str] = []
         cfg = self._base_config()
-        cfg["sego_dilations"] = [[-1], []]
+        cfg["sego_dilations"] = [[-5, 0, 10], []]  # erosion, keep, dilation
         _check_segmentation(cfg, errors, warnings)
-        assert any("non-negative integers" in e for e in errors)
+        assert errors == []
+
+    def test_non_integer_radius_rejected(self):
+        from src.preflight import _check_segmentation
+
+        errors: list[str] = []
+        warnings: list[str] = []
+        cfg = self._base_config()
+        cfg["sego_dilations"] = [[2.5], []]
+        _check_segmentation(cfg, errors, warnings)
+        assert any("must contain integers" in e for e in errors)
 
 
 class TestPlanOtherSegmaps:
@@ -174,6 +202,16 @@ class TestPlanOtherSegmaps:
         _, kind, params = plan[2]
         assert kind == "segment"
         assert params["index_list"] == 1
+
+    def test_negative_radius_produces_erosion_key(self):
+        from src.dilate import plan_other_segmaps
+
+        plan = plan_other_segmaps([2], [[-5, 10]])
+        keys = [p[0] for p in plan]
+        assert keys == ["other_0_d-5", "other_0_d10"]
+        params = {p[0]: p[2]["dilation"] for p in plan}
+        assert params["other_0_d-5"] == -5
+        assert params["other_0_d10"] == 10
 
     def test_missing_per_channel_entry_treated_as_empty(self):
         """If sego_dilations is shorter than sego_channels, missing entries
