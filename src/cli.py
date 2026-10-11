@@ -52,9 +52,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message=".*Compiled the loaded model.*")
 warnings.filterwarnings("ignore", message=".*overflow encountered.*")
 
-import time
-
 import luigi
+from luigi.execution_summary import LuigiStatusCode
 
 from . import util
 from . import cli_args
@@ -129,8 +128,10 @@ def main() -> None:
     # Store skip_incompatible in config for tasks to access
     luigi_config = luigi.configuration.get_config()
     luigi_config.set("core", "skip_incompatible", str(args.skip_incompatible))
+    # Keep our logging handlers: Luigi warnings and tracebacks go to koopa.log.
+    luigi_config.set("core", "no_configure_logging", "true")
 
-    # Run Luigi tasks with suppressed Luigi logging
+    # Run the final task and retain Luigi's execution diagnostics.
     tasks = (
         [GPUMerge(skip_incompatible=args.skip_incompatible)]
         if args.gpu
@@ -138,30 +139,24 @@ def main() -> None:
     )
     workers = 1 if args.gpu else args.workers
 
-    # Suppress Luigi's internal logging during build
-    import logging as _logging
-
-    for name in ["luigi", "luigi-interface", "luigi.scheduler", "luigi.worker"]:
-        _logging.getLogger(name).setLevel(_logging.CRITICAL)
-
-    pipeline_start = time.time()
     try:
         with util.log_timing(logger, "pipeline execution"):
-            build_ok = luigi.build(
-                tasks, local_scheduler=True, workers=workers, log_level="CRITICAL"
+            result = luigi.build(
+                tasks,
+                local_scheduler=True,
+                workers=workers,
+                log_level="WARNING",
+                detailed_summary=True,
             )
     except Exception as e:
+        logger.exception("Luigi pipeline execution failed")
         _handle_pipeline_error(logger, e, config)
         raise SystemExit(1)
 
-    # Show file processing summary
-    summary_lines = file_tracker.format_summary()
-    for line in summary_lines:
-        logger.info(line)
-
-    # Show output file statistics
-    _log_output_summary(logger, config)
-
+    build_ok = result.status in (
+        LuigiStatusCode.SUCCESS,
+        LuigiStatusCode.SUCCESS_WITH_RETRY,
+    )
     summary = file_tracker.get_summary()[0]
     has_failures = len(summary["failed"]) > 0
     # "processing" means Preprocess started but Merge never marked success —
@@ -170,24 +165,23 @@ def main() -> None:
     has_pending = len(incomplete) > 0
     no_files = len(file_tracker._registered_files) == 0
 
-    # Verify the pipeline's final output was actually written this run. A
-    # file left over from a previous run must not count as success.
-    expected_outputs = (
-        [os.path.join(config["output_path"], ".gpu_complete")]
-        if args.gpu
-        else [
-            os.path.join(config["output_path"], "summary.csv"),
-            os.path.join(config["output_path"], "summary_cells.csv"),
-        ]
+    # Check the final task's declared outputs as well as Luigi's status.
+    # Completed targets may legitimately be reused on a resumed run.
+    missing_outputs = [
+        target.path
+        for task in tasks
+        for target in luigi.task.flatten(task.output())
+        if not target.exists()
+    ]
+    pipeline_ok = not (
+        not build_ok or has_failures or has_pending or missing_outputs or no_files
     )
-    missing_outputs = []
-    for p in expected_outputs:
-        if not os.path.exists(p):
-            missing_outputs.append(p)
-        elif os.path.getmtime(p) < pipeline_start:
-            missing_outputs.append(p)
 
-    if not build_ok or has_failures or has_pending or missing_outputs or no_files:
+    for line in file_tracker.format_summary(pipeline_complete=pipeline_ok):
+        logger.info(line)
+    _log_output_summary(logger, config)
+
+    if not pipeline_ok:
         for line in BANNER_FAILURE.strip().split("\n"):
             logger.error(line)
         logger.error("")
@@ -198,7 +192,8 @@ def main() -> None:
             )
         if not build_ok:
             logger.error(
-                "Luigi reported task failures — check koopa.log for tracebacks."
+                f"Luigi execution status: {result.status.name}. "
+                "Check koopa.log for warnings and tracebacks."
             )
         if has_failures:
             logger.error("The failed files listed above may have corrupted data.")
@@ -210,12 +205,12 @@ def main() -> None:
             )
         if missing_outputs:
             logger.error(
-                "Final pipeline output not produced (or stale from a previous "
-                "run) — the pipeline did not complete. Missing:"
+                "Final pipeline output not produced — the pipeline did not "
+                "complete. Missing:"
             )
             for p in missing_outputs:
                 logger.error(f"  {p}")
-            logger.error("Try rerunning; Luigi occasionally drops the final task.")
+        logger.error(result.summary_text)
         raise SystemExit(1)
     else:
         for line in BANNER_SUCCESS.strip().split("\n"):

@@ -75,6 +75,18 @@ sh cpu.sh
 
 ## Troubleshooting
 
+**Missing final summaries:**
+The CPU pipeline succeeds only when Luigi completes successfully and both
+`summary.csv` and `summary_cells.csv` exist. GPU runs check `.gpu_complete`;
+run the CPU stage afterward to generate the CSVs. Completed outputs can be
+reused when resuming a run. An incomplete build exits non-zero and prints
+Luigi's execution summary. Check `koopa.log` for Luigi warnings and tracebacks.
+
+**Old configurations with `cellpose_resample`:**
+When the installed koopa version has removed this option, the pipeline warns
+and ignores it because Cellpose resampling is always enabled. Remove
+`cellpose_resample` from `[SegmentationCells]` to silence the warning.
+
 **Model compatibility errors:**
 - Use `./run_legacy.sh` for older models
 - Use `./run_modern.sh` for recent models

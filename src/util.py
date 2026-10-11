@@ -243,7 +243,7 @@ class FileStatusTracker:
             return error[:77] + "..."
         return error
 
-    def format_summary(self) -> list[str]:
+    def format_summary(self, pipeline_complete: bool = True) -> list[str]:
         """Format summary for display. Returns list of log lines."""
         summary, errors = self.get_summary()
         lines = []
@@ -252,7 +252,7 @@ class FileStatusTracker:
         success_count = len(summary["success"])
         failed_count = len(summary["failed"])
         skipped_count = len(summary["skipped"])
-        pending_count = len(summary["pending"])
+        pending_count = len(summary["pending"]) + len(summary["processing"])
 
         lines.append("")
         lines.append("=" * 50)
@@ -260,12 +260,16 @@ class FileStatusTracker:
         lines.append("=" * 50)
 
         # Show a simple status line
-        if failed_count == 0 and pending_count == 0:
+        if pipeline_complete and total > 0 and failed_count == 0 and pending_count == 0:
             lines.append(f"  All {total} files processed successfully!")
         else:
             lines.append(f"  {success_count + skipped_count} of {total} files OK")
             if failed_count > 0:
                 lines.append(f"  {failed_count} file(s) FAILED")
+            if pending_count > 0:
+                lines.append(f"  {pending_count} file(s) INCOMPLETE")
+            if not pipeline_complete:
+                lines.append("  Pipeline did not complete.")
 
         lines.append("")
         lines.append(f"  New:      {success_count} processed this run")
@@ -460,10 +464,27 @@ def log_timing(logger: logging.Logger, operation: str, file_id: str | None = Non
             logger.info(f"{context}{operation.capitalize()} completed in {time_str}")
 
 
-def set_configuration(path: str | os.PathLike) -> None:
-    # Parse configuration
+def _load_configuration(path: str | os.PathLike):
+    """Load and validate config, accepting known removed options."""
     cfg = koopa.io.load_config(path)
+    # Older koopa releases still support this option; preserve it there.
+    if (
+        "cellpose_resample" not in koopa.config.CONFIGS["SegmentationCells"]
+        and cfg.has_option("SegmentationCells", "cellpose_resample")
+    ):
+        if cfg.remove_option("SegmentationCells", "cellpose_resample"):
+            warnings.warn(
+                "SegmentationCells>cellpose_resample is deprecated and ignored; "
+                "Cellpose resampling is always enabled. Remove it from your config.",
+                UserWarning,
+                stacklevel=2,
+            )
     koopa.config.validate_config(cfg)
+    return cfg
+
+
+def set_configuration(path: str | os.PathLike) -> None:
+    cfg = _load_configuration(path)
     config = koopa.config.flatten_config(cfg)
 
     # Save config
@@ -502,8 +523,7 @@ def get_configuration() -> dict[str, Any]:
         config_path = os.environ.get("KOOPA_CONFIG_PATH")
         if config_path and os.path.exists(config_path):
             # Reload configuration in worker process
-            cfg = koopa.io.load_config(config_path)
-            koopa.config.validate_config(cfg)
+            cfg = _load_configuration(config_path)
             config_dict = koopa.config.flatten_config(cfg)
 
             # Set luigi config in this worker

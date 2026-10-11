@@ -160,6 +160,96 @@ class TestFileStatusTracker:
         text = "\n".join(lines)
         assert "1 of 2 files OK" in text
 
+    def test_processing_files_are_incomplete(self, tmp_path):
+        tracker = self._make_tracker(str(tmp_path))
+        tracker.register_file("a")
+        tracker.mark_processing("a")
+        text = "\n".join(tracker.format_summary())
+        assert "0 of 1 files OK" in text
+        assert "1 file(s) INCOMPLETE" in text
+        assert "processed successfully" not in text
+
+    def test_final_task_failure_suppresses_success_message(self, tmp_path):
+        tracker = self._make_tracker(str(tmp_path))
+        tracker.register_file("a")
+        tracker.mark_success("a")
+        text = "\n".join(tracker.format_summary(pipeline_complete=False))
+        assert "Pipeline did not complete" in text
+        assert "processed successfully" not in text
+
+
+class TestDeprecatedConfiguration:
+    @pytest.fixture
+    def config_path(self, tmp_path):
+        import koopa.config
+
+        cfg = koopa.config.create_default_config()
+        cfg.set("General", "input_path", str(tmp_path))
+        cfg.set("General", "output_path", str(tmp_path))
+        cfg.set("SpotsDetection", "detect_channels", "[0]")
+        cfg.set("SpotsDetection", "detect_models", "['model.h5']")
+        cfg.set("SegmentationCells", "cellpose_resample", "False")
+        path = tmp_path / "input.cfg"
+        with path.open("w") as stream:
+            cfg.write(stream)
+        return path
+
+    def test_removed_option_warns_and_is_omitted_from_saved_config(
+        self, config_path, monkeypatch,
+    ):
+        from src import util
+        import luigi
+
+        parser = luigi.configuration.LuigiConfigParser()
+        monkeypatch.setattr(luigi.configuration, "get_config", lambda: parser)
+        monkeypatch.setenv("KOOPA_CONFIG_PATH", "")
+        monkeypatch.setenv("CELLPOSE_LOCAL_MODELS_PATH", "")
+        with pytest.warns(UserWarning, match="cellpose_resample is deprecated and ignored"):
+            util.set_configuration(config_path)
+        assert "cellpose_resample" not in util.get_configuration()
+        saved = util.koopa.io.load_config(config_path.parent / "koopa.cfg")
+        assert not saved.has_option("SegmentationCells", "cellpose_resample")
+        # The user's source config is preserved.
+        source = util.koopa.io.load_config(config_path)
+        assert source.has_option("SegmentationCells", "cellpose_resample")
+
+    def test_worker_reload_accepts_removed_option(self, config_path, monkeypatch):
+        from src import util
+        import luigi
+
+        parser = luigi.configuration.LuigiConfigParser()
+        monkeypatch.setattr(luigi.configuration, "get_config", lambda: parser)
+        monkeypatch.setenv("KOOPA_CONFIG_PATH", str(config_path))
+        with pytest.warns(UserWarning, match="cellpose_resample"):
+            config = util.get_configuration()
+        assert "cellpose_resample" not in config
+        assert config["detect_channels"] == [0]
+
+    def test_unknown_options_still_raise(self, config_path):
+        from src import util
+
+        cfg = util.koopa.io.load_config(config_path)
+        cfg.remove_option("SegmentationCells", "cellpose_resample")
+        cfg.set("SegmentationCells", "cellpose_resampl", "True")
+        with config_path.open("w") as stream:
+            cfg.write(stream)
+        with pytest.raises(ValueError, match="cellpose_resampl unknown"):
+            util._load_configuration(config_path)
+
+    def test_supported_option_is_preserved(self, config_path, monkeypatch):
+        from src import util
+        import warnings
+
+        monkeypatch.setitem(
+            util.koopa.config.CONFIGS["SegmentationCells"], "cellpose_resample",
+            util.koopa.config.ConfigItem("Legacy resampling", True, bool),
+        )
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            cfg = util._load_configuration(config_path)
+        assert cfg.getboolean("SegmentationCells", "cellpose_resample") is False
+        assert not recorded
+
 
 class TestLogTiming:
     """Tests for the log_timing context manager.
