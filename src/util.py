@@ -83,7 +83,6 @@ class FileStatusTracker:
     def set_output_path(self, output_path: str):
         """Set the output path for the status file."""
         import json
-        self._output_path = output_path
         self._status_file = os.path.join(output_path, ".file_status.json")
         # Initialize or clear the status file
         self._write_status({"files": {}, "errors": {}})
@@ -173,10 +172,6 @@ class FileStatusTracker:
     def mark_failed(self, file_id: str, error: str = None):
         """Mark file as failed with optional error message."""
         self._update_status(file_id, "failed", error)
-
-    def mark_skipped(self, file_id: str):
-        """Mark file as skipped (already completed)."""
-        self._update_status(file_id, "skipped")
 
     def get_status(self, file_id: str) -> str:
         """Get status of a file."""
