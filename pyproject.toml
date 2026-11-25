@@ -32,8 +32,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "deptry==0.25.1",
     "pytest",
     "pytest-cov",
+    "vulture==2.16",
 ]
 
 [project.scripts]
@@ -50,3 +52,22 @@ include = ["src*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Dead-code check (CI workflow static-analysis.yml); run locally with `make lint-dead`.
+# Luigi finds tasks by name (koopa.cfg, shell scripts), so task classes and their hooks count as used.
+[tool.vulture]
+paths = ["src", "tests", "vulture_whitelist.py"]
+min_confidence = 60
+ignore_decorators = ["@pytest.fixture"]
+ignore_names = ["run", "requires", "output", "complete"]
+
+# Unused / missing dependency check, same CI workflow.
+[tool.deptry]
+known_first_party = ["src"]
+optional_dependencies_dev_groups = ["dev"]
+
+[tool.deptry.per_rule_ignores]
+# Baseline: provided by requirements_legacy.txt / requirements_modern.txt (TF/torch differ per env),
+# not by pyproject.toml.
+DEP001 = ["deepblink", "keras", "tensorflow", "torch"]
+DEP003 = ["numpy", "pandas", "scipy", "skimage"]

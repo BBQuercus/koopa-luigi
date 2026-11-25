@@ -1,0 +1,10 @@
+{
+  "path": ["src", "tests", "cpu.sh", "gpu.sh", "run_legacy.sh", "run_modern.sh", "setup_envs.sh"],
+  "format": ["python", "bash"],
+  "ignore": ["**/tests/output/**", "**/tests/fixtures/**", "**/__pycache__/**"],
+  "minTokens": 70,
+  "threshold": 0.5,
+  "reporters": ["console"],
+  "absolute": false,
+  "gitignore": true
+}
