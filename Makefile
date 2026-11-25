@@ -1,4 +1,4 @@
-.PHONY: test test-setup test-run test-verify clean help update-koopa update-koopa-legacy update-koopa-modern
+.PHONY: test test-setup test-run test-verify clean help lint-dead update-koopa update-koopa-legacy update-koopa-modern
 
 # Project root directory
 ROOT := $(shell pwd)
@@ -17,6 +17,7 @@ help:
 	@echo "  make test              Run the full test suite"
 	@echo "  make test-setup        Set up test environment only"
 	@echo "  make clean             Remove test outputs"
+	@echo "  make lint-dead         Static analysis: dead code, dependencies, duplicates"
 	@echo "  make update-koopa      Update koopa in both environments"
 	@echo "  make update-koopa-legacy   Update koopa in venv_legacy only"
 	@echo "  make update-koopa-modern   Update koopa in venv_modern only"
@@ -70,6 +71,13 @@ clean:
 	@echo "Cleaning test outputs..."
 	@rm -rf $(TEST_OUTPUT)
 	@echo "Clean complete"
+
+# Static analysis, same as CI (.github/workflows/static-analysis.yml).
+# Needs the dev extra (uv pip install -e ".[dev]") and Node for npx.
+lint-dead:
+	$(PYTHON) -m vulture
+	$(PYTHON) -m deptry .
+	npx --yes jscpd@5.4.3
 
 # Update koopa in both environments (--no-deps to preserve pinned numpy)
 update-koopa: update-koopa-legacy update-koopa-modern

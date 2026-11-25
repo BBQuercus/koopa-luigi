@@ -99,6 +99,11 @@ uv pip install nd2reader  # For Nikon ND2
 uv pip install czifile    # For Zeiss CZI
 ```
 
+## Static analysis
+
+`make lint-dead` runs the same checks as CI (vulture, deptry, jscpd). It needs the dev extra
+(`uv pip install -e ".[dev]"`) and Node for `npx`.
+
 ## Documentation
 * Slides [here](https://docs.google.com/presentation/d/1NnMhKKv6QjvK3uVa6e8yZHLHRFyKN9We8xGsiD1sIcY/edit?usp=sharing)
 * Video [here](https://youtu.be/R6RBIBuJDGI)
